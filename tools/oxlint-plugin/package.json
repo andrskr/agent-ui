@@ -1,0 +1,20 @@
+{
+  "name": "@acme/oxlint-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#src/*": "./src/*"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vp test"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "catalog:",
+    "oxlint": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

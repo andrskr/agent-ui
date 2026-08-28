@@ -1,0 +1,52 @@
+{
+  "name": "@acme/playground",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "astryx": "astryx",
+    "build-theme": "astryx theme build src/theme/theme.ts",
+    "dev": "vp dev --port 3000",
+    "generate-routes": "tsr generate",
+    "build": "vp run build-theme && vp build",
+    "preview": "vp preview"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "catalog:",
+    "@astryxdesign/theme-neutral": "catalog:",
+    "@phosphor-icons/react": "catalog:",
+    "@stylexjs/stylex": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-start": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@astryxdesign/build": "catalog:",
+    "@astryxdesign/cli": "catalog:",
+    "@babel/core": "catalog:",
+    "@stylexjs/babel-plugin": "catalog:",
+    "@stylexjs/unplugin": "catalog:",
+    "@tanstack/router-cli": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "oxc-transform-react": "catalog:",
+    "typescript": "catalog:",
+    "unplugin": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss"
+    ]
+  },
+  "astryx": {
+    "theme": "neutral"
+  }
+}

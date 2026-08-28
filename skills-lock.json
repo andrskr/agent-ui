@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "skills": {
+    "product-design": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "e0ddfac65cf8e2a6329df869e20b1dd26b6185aee9e9d9eb143bab6fa3031f1b"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "f3bc47f890f42a44db1007ab390709ec368e4b8c089baee6b0007182236ac474"
+    }
+  }
+}

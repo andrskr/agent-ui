@@ -1,0 +1,31 @@
+{
+  "name": "@acme/workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "vp install",
+    "dev": "vp run playground#dev",
+    "format": "vp fmt --check",
+    "lint": "vp lint",
+    "test": "vp run -r test",
+    "build": "vp run -r build",
+    "verify": "vp run format && vp run lint && vp run build",
+    "prepare": "vp config --no-agent"
+  },
+  "devDependencies": {
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.22.0",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "packageManager": "pnpm@11.22.0"
+}

@@ -1,0 +1,57 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+
+catalogMode: prefer
+
+catalog:
+  '@astryxdesign/build': 0.5.0
+  '@astryxdesign/cli': 0.5.0
+  '@astryxdesign/core': 0.5.0
+  '@astryxdesign/theme-neutral': 0.5.0
+  '@babel/core': 8.0.1
+  '@base-ui/react': 1.7.0
+  '@base-ui/utils': 0.3.2
+  '@phosphor-icons/react': 2.1.10
+  '@oxlint/plugins': 1.80.0
+  '@stylexjs/babel-plugin': 0.19.0
+  '@stylexjs/stylex': 0.19.0
+  '@stylexjs/unplugin': 0.19.0
+  '@tanstack/react-router': 1.170.32
+  '@tanstack/react-start': 1.168.49
+  '@tanstack/router-cli': 1.167.33
+  '@types/node': 26.4.0
+  '@types/react': 19.2.18
+  '@types/react-dom': 19.2.5
+  '@vitejs/plugin-react': 6.1.0
+  oxc-transform-react: 0.147.0
+  oxlint: 1.80.0
+  react: 19.2.8
+  react-dom: 19.2.8
+  typescript: 7.0.2
+  unplugin: 3.3.0
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.0
+  vite-plus: 0.3.0
+  vitest: 4.1.11
+  vitest-browser-react: 2.2.0
+overrides:
+  vite: 'catalog:'
+  '@types/node': 'catalog:'
+  typescript: 'catalog:'
+  vitest: 'catalog:'
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: '*'
+allowBuilds:
+  '@astryxdesign/cli': true
+  '@astryxdesign/core': true
+  cpu-features: set this to true or false
+  esbuild: true
+  lightningcss: true
+  protobufjs: set this to true or false
+  ssh2: set this to true or false
+minimumReleaseAgeExclude:
+  - '@types/node@26.4.0'

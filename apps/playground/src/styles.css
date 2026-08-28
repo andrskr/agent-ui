@@ -1,0 +1,20 @@
+@layer reset, astryx-base, astryx-theme, product;
+
+@import '../node_modules/@astryxdesign/core/src/reset.css';
+@import '../node_modules/@astryxdesign/core/dist/astryx.css';
+
+@layer product;
+
+@layer product {
+  html {
+    background-color: var(--color-background-body);
+  }
+
+  body {
+    position: relative;
+    background-color: var(--color-background-body);
+    color: var(--color-text-primary);
+    font-family: var(--font-family-body);
+    font-size: var(--font-size-base);
+  }
+}
