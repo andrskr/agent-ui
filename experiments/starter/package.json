@@ -1,0 +1,43 @@
+{
+  "name": "agent-ui-experiment-starter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "verify": "vp check && vp run build"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "0.5.4",
+    "@astryxdesign/theme-neutral": "0.5.4",
+    "@fontsource/figtree": "5.3.0",
+    "@stylexjs/stylex": "0.19.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@astryxdesign/build": "0.5.4",
+    "@astryxdesign/cli": "0.5.4",
+    "@stylexjs/unplugin": "0.19.0",
+    "@types/node": "26.5.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "7.0.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.1",
+    "vite-plus": "0.3.1"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.4.1",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "packageManager": "pnpm@12.4.1"
+}

@@ -73,6 +73,8 @@ PR descriptions, and code comments in this repo.
 - `tools/oxlint-plugin/` (`oxlint-plugin`): the custom Oxlint rule set, wired into lint through
   `vite.config.ts`. Every rule is a native `@oxlint/plugins` `defineRule` in `src/rules/<name>.ts`
   with a `<name>.spec.ts` beside it; genuinely shared helpers live in `src/support/`.
+- `experiments/`: task scaffolding and an independent React starter. Read `experiments/AGENTS.md`
+  before changing these files. The starter is a separate workspace.
 
 ## Operating contract
 

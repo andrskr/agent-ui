@@ -1,0 +1,9 @@
+packages:
+  - .
+
+allowBuilds:
+  '@astryxdesign/cli': true
+  '@astryxdesign/core': true
+
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.1

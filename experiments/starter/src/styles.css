@@ -1,0 +1,21 @@
+@layer reset, astryx-base, astryx-theme, app;
+
+@import '@fontsource/figtree/400.css';
+@import '@fontsource/figtree/500.css';
+@import '@fontsource/figtree/600.css';
+@import '@fontsource/figtree/700.css';
+/* Use shipped CSS paths because the Astryx build plugin aliases core imports to source. */
+@import '../node_modules/@astryxdesign/core/src/reset.css';
+@import '../node_modules/@astryxdesign/core/dist/astryx.css';
+@import '@astryxdesign/theme-neutral/theme.css';
+
+@layer app {
+  html {
+    background-color: var(--color-background-body);
+  }
+
+  body {
+    color: var(--color-text-primary);
+    font-family: var(--font-family-body);
+  }
+}
