@@ -1,11 +1,8 @@
 use crate::{
+    application::Application,
     artifact::Artifact,
-    codex::{self, Tools},
-    preview::{self, Preview},
     process::Cancel,
-    runner::{self, Settings},
-    settings::Effort,
-    storage::Store,
+    settings::{Effort, Settings},
     tui,
 };
 use anyhow::{Context, Result, ensure};
@@ -46,7 +43,7 @@ enum Action {
     },
     /// List available task IDs.
     Tasks,
-    /// Copy a task and starter, run Codex, and save the report.
+    /// Copy a task and starter, apply optional task.toml packages, run Codex, and save the report.
     Run { task: String },
     /// List saved runs.
     List,
@@ -91,20 +88,19 @@ pub fn run() -> Result<()> {
         .data_dir
         .clone()
         .unwrap_or(PathBuf::from(env::var("HOME")?).join("Library/Application Support/Agent UI"));
-    let store = Store::new(project(&cli)?, root)?;
-    store.recover()?;
+    let mut runtime = Application::open(project(&cli)?, root)?;
     match cli.command.take().unwrap_or(Action::Ui {
         snapshot: false,
         width: 120,
         height: 36,
     }) {
         Action::Tasks => {
-            for task in store.tasks()? {
+            for task in runtime.tasks()? {
                 println!("{task}");
             }
         }
         Action::List => {
-            for report in store.list()? {
+            for report in runtime.runs()? {
                 println!(
                     "{}  {:<12} {}",
                     report.id,
@@ -113,41 +109,48 @@ pub fn run() -> Result<()> {
                 );
             }
         }
-        Action::Show { run } => println!("{}", serde_json::to_string_pretty(&store.load(&run)?)?),
+        Action::Show { run } => {
+            println!("{}", serde_json::to_string_pretty(&runtime.report(&run)?)?)
+        }
         Action::Remove { run, yes } => {
             ensure!(yes, "Pass --yes to remove run {run} and all its files");
-            store.remove(&run)?;
+            runtime.remove(&run)?;
             println!("Removed {run}");
         }
         Action::Open { run, target } => {
-            let path = store.artifact(&run, target)?;
-            preview::open_editor(&path)?;
+            runtime.open_artifact(&run, target)?;
         }
         Action::Preview { run, no_open } => {
             let stop = Cancel::default();
             stop.install_signal_handler()?;
-            let mut preview = Preview::start(&store, &run, &codex::which("vp")?)?;
-            preview.wait(&stop)?;
-            println!("{}\nPress Ctrl+C to stop the preview.", preview.url());
+            runtime.start_preview(&run)?;
+            loop {
+                ensure!(!stop.is_cancelled(), "Preview cancelled during startup");
+                if runtime.poll_preview()? {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            println!(
+                "{}\nPress Ctrl+C to stop the preview.",
+                runtime.preview().context("Preview stopped")?.url
+            );
             if !no_open {
-                preview::open_url(preview.url())?;
+                runtime.open_preview()?;
             }
             while !stop.is_cancelled() {
-                ensure!(
-                    preview.is_running()?,
-                    "Preview stopped. See preview.stderr.log"
-                );
+                runtime.poll_preview()?;
                 thread::sleep(Duration::from_millis(300));
             }
         }
-        Action::Doctor => doctor(&store, &Tools::discover(cli.codex.as_deref())?)?,
-        Action::Login => codex::login(&store, &Tools::discover(cli.codex.as_deref())?)?,
+        Action::Doctor => println!("{}", runtime.doctor(cli.codex.as_deref())?),
+        Action::Login => runtime.login(cli.codex.as_deref())?,
         Action::Ui {
             snapshot,
             width,
             height,
         } => {
-            let app = tui::App::new(store, cli.settings())?;
+            let app = tui::App::new(runtime, cli.settings())?;
             if snapshot {
                 print!("{}", tui::snapshot(&app, width, height)?);
             } else {
@@ -155,10 +158,13 @@ pub fn run() -> Result<()> {
             }
         }
         Action::Run { task } => {
-            let active = runner::start(store.clone(), &task, cli.settings())?;
-            active.cancellation().install_signal_handler()?;
-            eprintln!("Run {}\n{}", active.id, store.dir(&active.id)?.display());
-            let report = active.join()?;
+            let id = runtime.start(&task, cli.settings())?;
+            runtime
+                .cancellation()
+                .context("Run did not start")?
+                .install_signal_handler()?;
+            eprintln!("Run {}\n{}", id, runtime.run_path(&id)?.display());
+            let report = runtime.join()?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             ensure!(
                 report.state == crate::report::State::Ready,
@@ -179,36 +185,6 @@ impl Cli {
         }
     }
 }
-fn doctor(store: &Store, tools: &Tools) -> Result<()> {
-    for (name, path) in [
-        ("Codex", &tools.codex),
-        ("Node", &tools.node),
-        ("Vite+", &tools.vp),
-        ("Ripgrep", &tools.rg),
-    ] {
-        println!(
-            "{name}: {}",
-            codex::output(std::process::Command::new(path).arg("--version"))?
-        );
-        println!("Path: {}", path.display());
-    }
-    println!(
-        "Project: {}\nRun storage: {}\nTasks: {}",
-        store.project().display(),
-        store.root().display(),
-        store.tasks()?.len()
-    );
-    println!(
-        "Credential file: {}",
-        if store.root().join("private/auth.json").is_file() {
-            "present"
-        } else {
-            "imported from Codex on first run, or use login"
-        }
-    );
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

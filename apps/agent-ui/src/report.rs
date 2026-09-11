@@ -40,13 +40,14 @@ impl State {
         }
     }
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Usage {
-    pub input_tokens: u64,
-    pub cached_input_tokens: u64,
-    pub output_tokens: u64,
-    pub reasoning_output_tokens: Option<u64>,
+
+#[derive(Clone, Copy, Debug)]
+pub enum Phase {
+    Setup,
+    Agent,
+    Verification,
 }
+pub use crate::evidence::Usage;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Check {
     pub exit_code: Option<i32>,
@@ -62,6 +63,8 @@ pub struct Report {
     pub schema_version: u32,
     pub id: String,
     pub task: String,
+    #[serde(default)]
+    pub task_config: Option<crate::task::TaskConfig>,
     pub state: State,
     pub created_at_ms: u64,
     pub finished_at_ms: Option<u64>,
@@ -97,6 +100,65 @@ pub struct Report {
     pub isolation: String,
 }
 impl Report {
+    pub fn begin_phase(&mut self, phase: Phase) -> Result<()> {
+        let (previous, next) = match phase {
+            Phase::Setup => (State::Preparing, State::Preparing),
+            Phase::Agent => (State::Preparing, State::Running),
+            Phase::Verification => (State::Running, State::Verifying),
+        };
+        ensure!(
+            self.state == previous,
+            "Cannot start {phase:?} from {}",
+            self.state.label()
+        );
+        if matches!(phase, Phase::Verification) {
+            self.check_agent_completion()?;
+            ensure!(
+                self.agent_exit_code == Some(0),
+                "Agent process did not succeed"
+            );
+        }
+        self.state = next;
+        if matches!(phase, Phase::Agent) {
+            self.agent_started_at_ms = Some(now());
+        }
+        Ok(())
+    }
+
+    pub fn finish(&mut self, failure: Option<String>, cancelled: bool) -> Result<()> {
+        ensure!(self.state.active(), "Run already finished");
+        if cancelled {
+            self.state = State::Cancelled;
+            self.error = Some(failure.unwrap_or_else(|| "Run cancelled".into()));
+        } else if let Some(error) = failure {
+            self.state = State::Failed;
+            self.error = Some(error);
+        } else {
+            ensure!(
+                self.state == State::Verifying,
+                "Run did not reach verification"
+            );
+            self.check_agent_completion()?;
+            ensure!(
+                self.verification
+                    .as_ref()
+                    .is_some_and(|check| check.exit_code == Some(0)),
+                "Verification did not pass"
+            );
+            self.state = State::Ready;
+        }
+        self.finished_at_ms = Some(now());
+        Ok(())
+    }
+
+    pub fn interrupt(&mut self) {
+        if self.state.active() {
+            self.state = State::Interrupted;
+            self.finished_at_ms = Some(now());
+            self.error = Some("The runner stopped before it saved a final result".into());
+            self.record("Recovered an interrupted run");
+        }
+    }
     pub fn new(
         id: String,
         task: String,
@@ -107,6 +169,7 @@ impl Report {
             schema_version: 1,
             id,
             task,
+            task_config: None,
             state: State::Preparing,
             created_at_ms: now(),
             finished_at_ms: None,
@@ -183,62 +246,39 @@ impl Report {
         Ok(())
     }
 
-    pub fn event(&mut self, line: &[u8]) {
-        let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
+    pub fn observe(&mut self, observation: crate::evidence::AgentObservation) {
+        use crate::evidence::{AgentObservation, AgentUpdate};
+        let AgentObservation::Event { kind, update } = observation else {
             self.invalid_event_lines += 1;
             return;
         };
-        let kind = value["type"].as_str().unwrap_or("unknown");
-        *self.event_counts.entry(kind.to_owned()).or_default() += 1;
-        match kind {
-            "thread.started" => self.thread_id = value["thread_id"].as_str().map(str::to_owned),
-            "turn.completed" => {
+        *self.event_counts.entry(kind).or_default() += 1;
+        match update {
+            AgentUpdate::Thread(id) => self.thread_id = id,
+            AgentUpdate::Turn(sample) => {
                 self.completed_turns += 1;
-                if let (Some(input), Some(cached), Some(output)) = (
-                    value["usage"]["input_tokens"].as_u64(),
-                    value["usage"]["cached_input_tokens"].as_u64(),
-                    value["usage"]["output_tokens"].as_u64(),
-                ) {
+                if let Some(sample) = sample {
                     let usage = self.usage.get_or_insert_default();
-                    usage.input_tokens += input;
-                    usage.cached_input_tokens += cached;
-                    usage.output_tokens += output;
-                    if let Some(n) = value["usage"]["reasoning_output_tokens"].as_u64() {
+                    usage.input_tokens += sample.input_tokens;
+                    usage.cached_input_tokens += sample.cached_input_tokens;
+                    usage.output_tokens += sample.output_tokens;
+                    if let Some(n) = sample.reasoning_output_tokens {
                         *usage.reasoning_output_tokens.get_or_insert(0) += n;
                     }
                 }
                 self.record("Codex completed a turn");
             }
-            "turn.failed" | "error" => {
-                let message = value["error"]["message"]
-                    .as_str()
-                    .or(value["message"].as_str())
-                    .unwrap_or("Codex reported an error");
-                self.error = Some(message.to_owned());
+            AgentUpdate::Failure(message) => {
+                self.error = Some(message.clone());
                 self.record(message);
             }
-            "item.started" | "item.completed" => {
-                let item = &value["item"];
-                let name = item["type"].as_str().unwrap_or("item");
-                let detail = item["command"]
-                    .as_str()
-                    .or(item["text"].as_str())
-                    .or(item["message"].as_str())
-                    .unwrap_or("");
-                if name == "error" {
-                    self.warnings.push(detail.to_owned());
+            AgentUpdate::Activity { text, warning } => {
+                if let Some(warning) = warning {
+                    self.warnings.push(warning);
                 }
-                self.record(format!(
-                    "{} {name}: {}",
-                    if kind == "item.started" {
-                        "Start"
-                    } else {
-                        "End"
-                    },
-                    detail.chars().take(240).collect::<String>()
-                ));
+                self.record(text);
             }
-            _ => {}
+            AgentUpdate::Unknown => {}
         }
     }
 }

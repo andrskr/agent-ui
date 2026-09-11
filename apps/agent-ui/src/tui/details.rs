@@ -189,6 +189,27 @@ pub(super) fn overview_lines(run: &Report, note: &str, width: u16) -> Vec<Line<'
         .fg(MUTED),
     );
     section(&mut lines, width);
+    if let Some(config) = &run.task_config
+        && config.has_packages()
+    {
+        lines.push(Line::from("Task packages").bold());
+        lines.push(Line::default());
+        for (packages, kind) in [
+            (&config.dependencies, "runtime"),
+            (&config.dev_dependencies, "dev"),
+        ] {
+            for (name, version) in packages {
+                lines.push(Line::from(format!("{name}  {version}  ({kind})")));
+            }
+        }
+        for (package, allowed) in &config.allow_builds {
+            let permission = if *allowed { "allowed" } else { "blocked" };
+            lines.push(Line::from(format!(
+                "{package}  (install scripts {permission})"
+            )));
+        }
+        section(&mut lines, width);
+    }
     lines.push(Line::from("Changed files").bold());
     lines.push(Line::default());
     if run.changed_files.is_empty() {

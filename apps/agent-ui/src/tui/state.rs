@@ -1,13 +1,6 @@
 use super::history::History;
-use crate::{
-    artifact::Artifact,
-    preview::{self, ManagedPreview},
-    report::Report,
-    runner::{self, Active, Settings},
-    storage::Store,
-};
+use crate::{application::Application, artifact::Artifact, report::Report, settings::Settings};
 use anyhow::Result;
-use std::{fs::File, io::Read};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DetailTab {
@@ -56,7 +49,7 @@ pub(super) enum Modal {
     Help,
 }
 pub struct App {
-    pub(super) store: Store,
+    pub(super) runtime: Application,
     pub(super) settings: Settings,
     pub(super) history: History,
     pub(super) searching: bool,
@@ -69,18 +62,15 @@ pub struct App {
     pub(super) modal: Modal,
     pub(super) field: FormField,
     pub(super) notice: String,
-    pub(super) active: Option<Active>,
-    pub(super) preview: Option<ManagedPreview>,
 }
 impl App {
-    pub fn new(store: Store, settings: Settings) -> Result<Self> {
-        store.recover()?;
-        let runs = store.list()?;
-        let tasks = store.tasks()?;
+    pub fn new(runtime: Application, settings: Settings) -> Result<Self> {
+        let runs = runtime.runs()?;
+        let tasks = runtime.tasks()?;
         let mut history = History::default();
         history.replace(runs);
         let mut app = Self {
-            store,
+            runtime,
             settings,
             history,
             searching: false,
@@ -93,8 +83,6 @@ impl App {
             modal: Modal::None,
             field: FormField::Task,
             notice: String::new(),
-            active: None,
-            preview: None,
         };
         app.load_note();
         Ok(app)
@@ -103,35 +91,22 @@ impl App {
         self.history.current()
     }
     pub(super) fn refresh(&mut self) -> Result<()> {
-        self.history.replace(self.store.list()?);
-        self.load_note();
-        if self.active.as_ref().is_some_and(Active::finished)
-            && let Some(active) = self.active.take()
-        {
-            active.join()?;
+        if self.runtime.poll_run()?.is_some() {
             self.notice.clear();
         }
-        if let Some(preview) = &mut self.preview {
-            match preview.poll() {
-                Ok(true) => {
-                    let url = preview.url().to_owned();
-                    preview::open_url(&url)?;
-                    self.notice = format!("Preview: {url}  Press x to stop it.");
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    self.preview = None;
-                    self.notice = error.to_string();
-                }
+        self.history.replace(self.runtime.runs()?);
+        self.load_note();
+        if self.runtime.poll_preview()? {
+            self.runtime.open_preview()?;
+            if let Some(preview) = self.runtime.preview() {
+                self.notice = format!("Preview: {}  Press x to stop it.", preview.url);
             }
         }
         Ok(())
     }
     pub(super) fn start(&mut self) -> Result<()> {
         if let Some(task) = self.tasks.get(self.task) {
-            let active = runner::start(self.store.clone(), task, self.settings.clone())?;
-            let id = active.id.clone();
-            self.active = Some(active);
+            let id = self.runtime.start(task, self.settings.clone())?;
             self.refresh()?;
             self.history.set_query(String::new());
             self.history.select_id(&id);
@@ -144,10 +119,10 @@ impl App {
         Ok(())
     }
     pub(super) fn new_run(&mut self) -> Result<()> {
-        if self.active.is_some() {
+        if self.runtime.has_active_run() {
             self.notice = "Wait for the active run or press c to cancel it.".into();
         } else {
-            self.tasks = self.store.tasks()?;
+            self.tasks = self.runtime.tasks()?;
             self.task = self.task.min(self.tasks.len().saturating_sub(1));
             self.field = FormField::Task;
             self.modal = Modal::New;
@@ -191,13 +166,7 @@ impl App {
         }
         let id = run.id.clone();
         let active = run.state.active();
-        let path = self.store.dir(&id).map(|dir| dir.join("agent-report.md"));
-        let mut bytes = Vec::new();
-        self.agent_note =
-            match path.and_then(|path| Ok(File::open(path)?.take(4096).read_to_end(&mut bytes)?)) {
-                Ok(_) => String::from_utf8_lossy(&bytes).into_owned(),
-                Err(_) => String::new(),
-            };
+        self.agent_note = self.runtime.agent_note(&id).unwrap_or_default();
         self.note_id = (!active).then_some(id);
     }
     pub(super) fn navigate(&mut self, delta: isize) {
@@ -210,23 +179,18 @@ impl App {
             return Ok(());
         };
         if let ReviewAction::Preview = action {
-            if let Some(preview) = &self.preview
-                && preview.id() == id
+            if let Some(preview) = self.runtime.preview()
+                && preview.id == id
             {
-                if preview.is_ready() {
-                    preview::open_url(preview.url())?;
+                if preview.ready {
+                    self.runtime.open_preview()?;
                 }
                 return Ok(());
             }
-            self.preview = Some(ManagedPreview::start(
-                &self.store,
-                &id,
-                &crate::codex::which("vp")?,
-            )?);
+            self.runtime.start_preview(&id)?;
             self.notice = "Starting the browser preview...".into();
         } else if let ReviewAction::Open(artifact) = action {
-            let path = self.store.artifact(&id, artifact)?;
-            preview::open_editor(&path)?;
+            self.runtime.open_artifact(&id, artifact)?;
             self.notice = match artifact {
                 Artifact::Code => "Opened the app in your editor.",
                 Artifact::Report => "Opened the JSON report in your editor.",

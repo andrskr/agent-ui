@@ -62,11 +62,11 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             searching: app.searching,
             notice: &app.notice,
             note: &app.agent_note,
-            preview: app.preview.as_ref().map(|p| PreviewInfo {
-                id: p.id(),
-                ready: p.is_ready(),
+            preview: app.runtime.preview().map(|p| PreviewInfo {
+                id: p.id,
+                ready: p.ready,
             }),
-            active: app.active.is_some(),
+            active: app.runtime.has_active_run(),
         },
     );
     if frame.area().width >= 76 && frame.area().height >= 24 && app.modal != Modal::None {

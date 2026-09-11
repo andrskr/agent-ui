@@ -1,9 +1,7 @@
-use crate::report::{Report, State, now};
-use anyhow::{Context, Result, bail, ensure};
+use crate::report::Report;
+use anyhow::{Context, Result, ensure};
 use fs2::FileExt;
-use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::Write,
     os::unix::fs::PermissionsExt,
@@ -11,9 +9,31 @@ use std::{
 };
 
 #[derive(Clone)]
-pub struct Store {
-    project: PathBuf,
+pub(crate) struct Store {
     root: PathBuf,
+}
+
+/// One owner for the public paths of a saved run.
+#[derive(Clone)]
+pub(crate) struct RunFiles {
+    root: PathBuf,
+}
+impl RunFiles {
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+    pub fn app(&self) -> PathBuf {
+        self.root.join("app")
+    }
+    pub fn inputs(&self) -> PathBuf {
+        self.root.join("inputs")
+    }
+    pub fn evidence(&self) -> PathBuf {
+        self.root.join("evidence")
+    }
+    pub fn agent_report(&self) -> PathBuf {
+        self.root.join("agent-report.md")
+    }
 }
 pub fn valid_id(id: &str) -> Result<()> {
     ensure!(
@@ -41,138 +61,21 @@ pub fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
     fs::rename(temp, path)?;
     Ok(())
 }
-#[derive(Clone, Copy)]
-pub enum CopyMode {
-    All,
-    Source,
-}
-pub fn copy_tree(source: &Path, target: &Path, mode: CopyMode) -> Result<()> {
-    ensure!(
-        !fs::symlink_metadata(source)?.file_type().is_symlink(),
-        "Source must not be a link: {}",
-        source.display()
-    );
-    fs::create_dir_all(target)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if matches!(mode, CopyMode::Source)
-            && matches!(name.to_str(), Some("node_modules" | "dist" | ".git"))
-        {
-            continue;
-        }
-        let kind = entry.file_type()?;
-        ensure!(
-            !kind.is_symlink(),
-            "Input must not be a link: {}",
-            entry.path().display()
-        );
-        if kind.is_dir() {
-            copy_tree(&entry.path(), &target.join(name), mode)?;
-        } else if kind.is_file() {
-            fs::copy(entry.path(), target.join(name))?;
-        } else {
-            bail!("Input must be a regular file: {}", entry.path().display());
-        }
-    }
-    Ok(())
-}
-pub fn inventory(root: &Path) -> Result<BTreeMap<String, String>> {
-    fn visit(root: &Path, path: &Path, result: &mut BTreeMap<String, String>) -> Result<()> {
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            if matches!(
-                entry.file_name().to_str(),
-                Some("node_modules" | "dist" | ".git")
-            ) {
-                continue;
-            }
-            let kind = entry.file_type()?;
-            if kind.is_dir() {
-                visit(root, &entry.path(), result)?;
-            } else if kind.is_file() {
-                result.insert(
-                    entry
-                        .path()
-                        .strip_prefix(root)?
-                        .to_string_lossy()
-                        .into_owned(),
-                    format!("{:x}", Sha256::digest(fs::read(entry.path())?)),
-                );
-            } else if kind.is_symlink() {
-                result.insert(
-                    entry
-                        .path()
-                        .strip_prefix(root)?
-                        .to_string_lossy()
-                        .into_owned(),
-                    format!("symlink:{}", fs::read_link(entry.path())?.display()),
-                );
-            }
-        }
-        Ok(())
-    }
-    let mut result = BTreeMap::new();
-    visit(root, root, &mut result)?;
-    Ok(result)
-}
 impl Store {
-    pub fn project(&self) -> &Path {
-        &self.project
+    pub fn files(&self, id: &str) -> Result<RunFiles> {
+        Ok(RunFiles {
+            root: self.dir(id)?,
+        })
     }
     pub fn root(&self) -> &Path {
         &self.root
     }
-    pub fn new(project: PathBuf, root: PathBuf) -> Result<Self> {
-        let project = project
-            .canonicalize()
-            .context("Project folder does not exist")?;
-        ensure!(
-            project.join("experiments/starter/package.json").is_file(),
-            "Project has no experiment starter"
-        );
+    pub fn new(root: PathBuf) -> Result<Self> {
         private_dir(&root)?;
         let root = root.canonicalize()?;
-        ensure!(
-            !root.starts_with(&project),
-            "Run storage must be outside the repository"
-        );
         private_dir(&root.join("runs"))?;
         private_dir(&root.join("private"))?;
-        Ok(Self { project, root })
-    }
-    pub fn tasks(&self) -> Result<Vec<String>> {
-        let mut tasks = vec![];
-        for entry in fs::read_dir(self.project.join("experiments/tasks"))? {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !name.starts_with('_')
-                && entry.file_type()?.is_dir()
-                && entry.path().join("task.md").is_file()
-            {
-                valid_id(&name)?;
-                tasks.push(name);
-            }
-        }
-        tasks.sort();
-        Ok(tasks)
-    }
-    pub fn task(&self, id: &str) -> Result<PathBuf> {
-        valid_id(id)?;
-        let path = self.project.join("experiments/tasks").join(id);
-        ensure!(
-            !id.starts_with('_') && path.join("task.md").is_file(),
-            "Task '{id}' does not exist"
-        );
-        ensure!(
-            !fs::symlink_metadata(&path)?.file_type().is_symlink(),
-            "Task folder must not be a link"
-        );
-        ensure!(
-            !path.join("task.toml").exists(),
-            "task.toml is not supported in this version"
-        );
-        Ok(path)
+        Ok(Self { root })
     }
     pub fn dir(&self, id: &str) -> Result<PathBuf> {
         valid_id(id)?;
@@ -239,10 +142,7 @@ impl Store {
         };
         for mut report in self.list()? {
             if report.state.active() {
-                report.state = State::Interrupted;
-                report.finished_at_ms = Some(now());
-                report.error = Some("The runner stopped before it saved a final result".into());
-                report.record("Recovered an interrupted run");
+                report.interrupt();
                 self.save(&report)?;
             }
         }

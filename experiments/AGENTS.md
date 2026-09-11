@@ -8,6 +8,7 @@ application lives in `apps/agent-ui/`. Run `vp run agent-ui` to open it.
 - `starter/` is an independent React and Astryx application.
 - `tasks/_template/` is an empty task template. It is not an executable task.
 - `tasks/<task-id>/task.md` contains the original prompt.
+- `tasks/<task-id>/task.toml` optionally adds or overrides npm packages for that run.
 - `tasks/<task-id>/AGENTS.md` optionally contains instructions for the generated project.
 - `tasks/<task-id>/references/` contains any supporting assets. Keep their relative paths.
 
@@ -28,6 +29,31 @@ Submit `task.md` as the prompt. Include all reference assets. Do not merge unrel
 repository instructions. Do not copy `node_modules/`, `dist/`, or Git state from the starter. Do not
 add a shared `AGENTS.md` to the starter. Each task owns its project instructions. An independent
 starter does not by itself isolate Codex configuration or host access.
+
+## Task packages
+
+Use `task.toml` when a task needs packages beyond the starter:
+
+```toml
+[dev-dependencies]
+"@astryxdesign/cli" = "0.5.4"
+
+[allow-builds]
+"@astryxdesign/cli@0.5.4" = true
+```
+
+Use `[dependencies]` for runtime packages and `[dev-dependencies]` for development tools. Use exact
+versions. Do not use ranges, tags, URLs, local paths, or workspace references. A package must appear
+in only one section. The task setting replaces that package's starter version and dependency
+section.
+
+Without this file, or with an empty file, the run uses the starter's frozen lockfile. With task
+packages, setup changes the copied `package.json` and updates the copied lockfile. It saves both
+files as setup evidence before Codex starts. It does not change the shared starter or add agent
+instructions. Use `[allow-builds]` for task-specific install-script permissions. Each key must use
+`package@exact-version` and match a dependency declared in this task. `true` allows its scripts;
+`false` blocks them. The runner merges these entries into the copied workspace settings. It does not
+change the shared starter. Transitive package permissions are not supported in this version.
 
 ## Starter commands
 

@@ -62,10 +62,7 @@ impl App {
                 KeyCode::Esc => self.modal = Modal::None,
                 KeyCode::Char('y') => {
                     if let Some(id) = self.current().map(|r| r.id.clone()) {
-                        if self.preview.as_ref().is_some_and(|p| p.id() == id) {
-                            self.preview = None;
-                        }
-                        self.store.remove(&id)?;
+                        self.runtime.remove(&id)?;
                         self.refresh()?;
                         self.notice = format!("Removed run {id} and its files.");
                     }
@@ -111,8 +108,8 @@ impl App {
                 }
                 KeyCode::Char('n') => self.new_run()?,
                 KeyCode::Char('c') => {
-                    if let Some(active) = &self.active {
-                        active.cancel();
+                    if self.runtime.has_active_run() {
+                        self.runtime.cancel();
                         self.notice = "Stopping the active run...".into();
                     }
                 }
@@ -123,7 +120,7 @@ impl App {
                 }
                 KeyCode::Char('?') => self.modal = Modal::Help,
                 KeyCode::Char('x') => {
-                    self.preview = None;
+                    self.runtime.stop_preview();
 
                     self.notice = "Preview stopped.".into();
                 }
@@ -222,11 +219,11 @@ impl App {
                         self.review(ReviewAction::Open(Artifact::Code))?;
                     } else if actions[2].contains(position)
                         && self
-                            .preview
-                            .as_ref()
-                            .is_some_and(|p| self.current().is_some_and(|r| r.id == p.id()))
+                            .runtime
+                            .preview()
+                            .is_some_and(|p| self.current().is_some_and(|r| r.id == p.id))
                     {
-                        self.preview = None;
+                        self.runtime.stop_preview();
                         self.notice = "Preview stopped.".into();
                     }
                 } else if self.tab == DetailTab::Overview && parts[2].contains(position) {

@@ -17,12 +17,21 @@ interactive TUI. Read [README.md](README.md) for the run flow, file structure, a
 ## Development
 
 - Keep terminal rendering separate from execution and saved reports.
+- Read `ARCHITECTURE.md` for ownership rules. Route CLI and TUI actions through `Application`.
+- Keep task discovery in `Project`, copied app setup in `PreparedWorkspace`, and saved runs in
+  `Store`.
+- Keep provider JSON in `codex/event.rs`. Feed typed observations to `Report`.
+- Use `Journal` for phase timing and report writes. Use the report lifecycle methods for terminal
+  states.
 - Use the same runner for CLI and TUI actions.
 - Preserve raw events. Do not invent usage, progress percentages, or currency costs.
 - Keep credentials in private storage outside run evidence and generated projects.
 - Keep run output outside this repository. Copy task inputs only when a run starts.
 - Save failures and partial reports. Stop the owned process group on cancellation.
-- Use task IDs for normal commands. Do not implement `task.toml` in this phase.
+- Use task IDs for normal commands. Load optional `task.toml` package settings automatically.
+- Keep task configuration limited to exact npm package versions and explicit install-script
+  permissions for those versions. Preserve its source, workspace settings, and resolved setup
+  lockfile. Apply it only to the run copy, before measuring agent execution.
 - Keep tests in memory. Do not create files, change the host environment, start child processes, or
   open browsers or editors from tests. Do not call the run, preview, or editor actions in tests.
 - Test observable behavior with independent expected results. Do not test copied logic, display

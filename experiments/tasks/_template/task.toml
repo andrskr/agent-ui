@@ -1,0 +1,12 @@
+# Optional package settings. An empty file uses the bare starter.
+# Uncomment only the packages required by this task. Use exact versions.
+
+# [dependencies]
+# zod = "4.1.0"
+
+# [dev-dependencies]
+# "@astryxdesign/cli" = "0.5.4"
+
+# Allow scripts only after reviewing this package version.
+# [allow-builds]
+# "@astryxdesign/cli@0.5.4" = true

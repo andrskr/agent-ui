@@ -93,6 +93,10 @@ pub fn execute(
     cancel: &Cancel,
     mut on_tick: impl FnMut(&[Vec<u8>], f64) -> Result<()>,
 ) -> Result<Outcome> {
+    ensure!(
+        !cancel.is_cancelled(),
+        "Run cancelled before starting the process"
+    );
     let started = Instant::now();
     command
         .stdout(File::create(log)?)

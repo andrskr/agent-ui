@@ -6,40 +6,31 @@ use std::{
     net::{TcpListener, TcpStream},
     path::Path,
     process::{Command, Stdio},
-    thread,
     time::{Duration, Instant},
 };
 
-pub fn open_editor(path: &Path) -> Result<()> {
-    let result = Command::new("/usr/bin/open")
-        .args(["-a", "Visual Studio Code"])
-        .arg(path)
-        .output()?;
-    ensure!(
-        result.status.success(),
-        "Cannot open VS Code: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    Ok(())
-}
-pub fn open_url(url: &str) -> Result<()> {
-    ensure!(
-        Command::new("/usr/bin/open").arg(url).status()?.success(),
-        "Cannot open the browser"
-    );
-    Ok(())
+enum PreviewPhase {
+    Starting(Instant),
+    Ready,
 }
 pub struct Preview {
     id: String,
     url: String,
     process: OwnedChild,
     _lock: File,
+    phase: PreviewPhase,
 }
 impl Preview {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    pub fn is_ready(&self) -> bool {
+        matches!(self.phase, PreviewPhase::Ready)
+    }
     pub fn url(&self) -> &str {
         &self.url
     }
-    pub fn is_running(&mut self) -> Result<bool> {
+    fn is_running(&mut self) -> Result<bool> {
         Ok(self.process.try_wait()?.is_none())
     }
     pub fn start(store: &Store, id: &str, vp: &Path) -> Result<Self> {
@@ -49,8 +40,9 @@ impl Preview {
             !report.state.active(),
             "Wait for the run to finish before opening a preview"
         );
-        let dir = store.dir(id)?;
-        let app = dir.join("app");
+        let files = store.files(id)?;
+        let dir = files.root();
+        let app = files.app();
         ensure!(
             app.join("node_modules").is_dir(),
             "This run has no installed dependencies"
@@ -78,9 +70,10 @@ impl Preview {
             url: format!("http://127.0.0.1:{port}/"),
             process,
             _lock: lock,
+            phase: PreviewPhase::Starting(Instant::now()),
         })
     }
-    pub fn ready(&mut self) -> Result<bool> {
+    fn ready(&mut self) -> Result<bool> {
         ensure!(
             self.process.try_wait()?.is_none(),
             "Preview stopped. See preview.stderr.log"
@@ -101,50 +94,11 @@ impl Preview {
         }
         Ok(false)
     }
-    pub fn wait(&mut self, cancel: &crate::process::Cancel) -> Result<()> {
-        let start = Instant::now();
-        while !self.ready()? {
-            ensure!(!cancel.is_cancelled(), "Preview cancelled during startup");
-            ensure!(
-                start.elapsed() < Duration::from_secs(30),
-                "Preview did not start within 30 seconds"
-            );
-            thread::sleep(Duration::from_millis(100));
-        }
-        Ok(())
-    }
-}
-
-/// Owns one preview and its startup state.
-pub struct ManagedPreview {
-    preview: Preview,
-    phase: PreviewPhase,
-}
-enum PreviewPhase {
-    Starting(Instant),
-    Ready,
-}
-impl ManagedPreview {
-    pub fn start(store: &Store, id: &str, vp: &Path) -> Result<Self> {
-        Ok(Self {
-            preview: Preview::start(store, id, vp)?,
-            phase: PreviewPhase::Starting(Instant::now()),
-        })
-    }
-    pub fn id(&self) -> &str {
-        &self.preview.id
-    }
-    pub fn url(&self) -> &str {
-        &self.preview.url
-    }
-    pub fn is_ready(&self) -> bool {
-        matches!(self.phase, PreviewPhase::Ready)
-    }
     /// Returns true once when the server is ready to open.
     pub fn poll(&mut self) -> Result<bool> {
         match self.phase {
             PreviewPhase::Starting(started) => {
-                if self.preview.ready()? {
+                if self.ready()? {
                     self.phase = PreviewPhase::Ready;
                     return Ok(true);
                 }
@@ -154,7 +108,7 @@ impl ManagedPreview {
                 );
             }
             PreviewPhase::Ready => ensure!(
-                self.preview.is_running()?,
+                self.is_running()?,
                 "Preview stopped. See preview.stderr.log"
             ),
         }

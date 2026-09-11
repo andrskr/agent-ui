@@ -1,5 +1,57 @@
+use crate::toolchain::Tools;
+pub mod event;
+use crate::{journal::Journal, storage::write_json, workspace::PreparedWorkspace};
+use std::time::Duration;
+
+pub(crate) fn prepare(journal: &mut Journal, tools: &Tools, app: &Path) -> Result<Session> {
+    let session = Session::new(journal.store(), &journal.report.id, app, tools)?;
+    let evidence = journal.files.evidence();
+    fs::write(evidence.join("codex-config.toml"), CONFIG)?;
+    write_json(&evidence.join("environment.json"), &session.environment())?;
+    let mut command = session.command(tools, app);
+    command.args(["login", "status"]);
+    journal.command(command, "Codex login", "login", Duration::from_secs(30))?;
+    Ok(session)
+}
+
+pub(crate) fn execute(
+    session: &Session,
+    settings: &crate::settings::Settings,
+    tools: &Tools,
+    workspace: &PreparedWorkspace,
+    journal: &mut Journal,
+) -> Result<()> {
+    let args = exec_args(settings, &workspace.app, &journal.files.agent_report())?;
+    let evidence = journal.files.evidence();
+    write_json(
+        &evidence.join("command.json"),
+        &serde_json::json!({"program": tools.codex, "args": args}),
+    )?;
+    fs::write(evidence.join("prompt.txt"), &workspace.prompt)?;
+    journal.report.record("Codex started");
+    let mut command = session.command(tools, &workspace.app);
+    command.args(args);
+    let cancel = journal.cancellation();
+    let result = crate::process::execute(
+        &mut command,
+        &evidence.join("events.jsonl"),
+        &evidence.join("codex.stderr.log"),
+        Some(&workspace.prompt),
+        Duration::from_secs(settings.timeout),
+        &cancel,
+        |lines, seconds| {
+            journal.agent_progress(seconds, lines.iter().map(|line| event::decode(line)))
+        },
+    );
+    if let Ok(outcome) = &result {
+        journal.agent_outcome(outcome);
+    }
+    journal.save()?;
+    crate::process::checked(&result?, "Codex")?;
+    journal.report.check_agent_completion()
+}
 use crate::storage::{Store, private_dir};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, bail, ensure};
 use std::{
     collections::BTreeMap,
     env, fs,
@@ -26,88 +78,7 @@ computer_use = false
 workspace_dependencies = false
 skip_host_skill_discovery = true
 "#;
-#[derive(Clone)]
-pub struct Tools {
-    pub codex: PathBuf,
-    pub vp: PathBuf,
-    pub node: PathBuf,
-    pub rg: PathBuf,
-}
-pub fn which(name: &str) -> Result<PathBuf> {
-    env::split_paths(&env::var_os("PATH").unwrap_or_default())
-        .map(|p| p.join(name))
-        .find(|p| p.is_file())
-        .with_context(|| format!("Cannot find {name} in PATH"))
-}
-pub fn output(command: &mut Command) -> Result<String> {
-    let result = command.output()?;
-    ensure!(
-        result.status.success(),
-        "Tool failed: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    Ok(String::from_utf8_lossy(&result.stdout).trim().to_owned())
-}
-impl Tools {
-    pub fn discover(codex_override: Option<&Path>) -> Result<Self> {
-        let node = PathBuf::from(output(
-            Command::new(which("node")?).args(["-p", "process.execPath"]),
-        )?);
-        let mut codex = match codex_override {
-            Some(path) => path.to_path_buf(),
-            None => which("codex")?,
-        };
-        // Vite+ shims need the host home. Find the native Codex file before changing the child environment.
-        if codex_override.is_none() && codex.canonicalize()?.file_name().is_some_and(|n| n == "vp")
-        {
-            let packages =
-                PathBuf::from(env::var("HOME")?).join(".vite-plus/packages/@openai/codex");
-            let mut candidates = vec![];
-            if packages.is_dir() {
-                for entry in fs::read_dir(packages)? {
-                    let entry = entry?;
-                    let modules = entry
-                        .path()
-                        .join("lib/node_modules/@openai/codex/node_modules/@openai");
-                    if !modules.is_dir() {
-                        continue;
-                    }
-                    for package in fs::read_dir(modules)? {
-                        let vendor = package?.path().join("vendor");
-                        if !vendor.is_dir() {
-                            continue;
-                        }
-                        for arch in fs::read_dir(vendor)? {
-                            let path = arch?.path().join("bin/codex");
-                            if path.is_file() {
-                                candidates.push(path);
-                            }
-                        }
-                    }
-                }
-            }
-            candidates.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
-            codex = candidates.pop().context(
-                "Cannot resolve the Codex shim. Pass --codex with the native binary path",
-            )?;
-        }
-        let codex = codex.canonicalize()?;
-        let rg = bundled_rg(&codex)
-            .filter(|path| path.is_file())
-            .or_else(|| which("rg").ok())
-            .context("Cannot find ripgrep in the Codex package or PATH. Install ripgrep or reinstall Codex")?;
-        Ok(Self {
-            codex,
-            vp: which("vp")?,
-            node,
-            rg: rg.canonicalize()?,
-        })
-    }
-}
-fn bundled_rg(codex: &Path) -> Option<PathBuf> {
-    Some(codex.parent()?.parent()?.join("codex-path/rg"))
-}
-pub fn auth_seed(store: &Store) -> Result<PathBuf> {
+fn auth_seed(store: &Store) -> Result<PathBuf> {
     let seed = store.root().join("private/auth.json");
     if !seed.exists() {
         let source = env::var_os("CODEX_HOME")
@@ -128,15 +99,12 @@ pub fn auth_seed(store: &Store) -> Result<PathBuf> {
     }
     Ok(seed)
 }
-pub struct Session {
+pub(crate) struct Session {
     root: PathBuf,
     home: PathBuf,
     env: BTreeMap<String, String>,
 }
 impl Session {
-    pub fn home(&self) -> &Path {
-        &self.home
-    }
     pub fn environment(&self) -> &BTreeMap<String, String> {
         &self.env
     }
@@ -226,7 +194,7 @@ impl Drop for Session {
         let _ = fs::remove_dir_all(&self.root);
     }
 }
-pub fn login(store: &Store, tools: &Tools) -> Result<()> {
+pub(crate) fn login(store: &Store, tools: &Tools) -> Result<()> {
     let _lock = store.lock()?;
     let home = store.root().join("private/login");
     private_dir(&home)?;
@@ -254,7 +222,7 @@ pub fn login(store: &Store, tools: &Tools) -> Result<()> {
     Ok(())
 }
 
-pub fn exec_args(
+fn exec_args(
     settings: &crate::settings::Settings,
     app: &Path,
     agent_report: &Path,
