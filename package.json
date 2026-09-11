@@ -10,7 +10,7 @@
     "lint": "vp lint",
     "test": "vp run -r test",
     "build": "vp run -r build",
-    "verify": "vp run format && vp run lint && vp run build",
+    "verify": "vp run format && vp run lint && vp run build && vp run verify:agent-ui",
     "prepare": "vp config --no-agent"
   },
   "devDependencies": {

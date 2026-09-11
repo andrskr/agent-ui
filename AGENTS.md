@@ -63,6 +63,9 @@ PR descriptions, and code comments in this repo.
 
 ## Ownership map
 
+- `apps/agent-ui/`: the Rust application for local experiments. It owns the CLI, TUI, run processes,
+  and saved evidence. Read its `AGENTS.md` before changing it. Use Cargo for Rust commands. Run
+  `vp run agent-ui --help` to discover CLI commands. Run `vp run agent-ui` to open the TUI.
 - `apps/playground/` (`@acme/playground`): the TanStack Start application. File routes live under
   `src/routes/`; framework composition (document shell, providers, router-link) lives under
   `src/app/`. Has its own `apps/playground/AGENTS.md` for Astryx-specific guidance — read it before
@@ -89,6 +92,8 @@ PR descriptions, and code comments in this repo.
 
 ## Workflow
 
+- Keep automated test data in memory. Tests must not create files or open browsers or code editors.
+- Use independent expected results. Do not copy implementation logic into test expectations.
 - After cloning or pulling, run `vp run setup`.
 - Before handoff, run `vp run verify` (format check, lint, build). `vp run dev` starts the app's dev
   server; `vp run build` builds the client + SSR server bundles.

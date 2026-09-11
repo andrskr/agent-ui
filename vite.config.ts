@@ -455,5 +455,16 @@ export default defineConfig({
   },
   run: {
     cache: true,
+    tasks: {
+      'agent-ui': {
+        command: 'cargo run -p agent-ui --',
+        cache: false,
+      },
+      'verify:agent-ui': {
+        command:
+          'cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace',
+        cache: false,
+      },
+    },
   },
 });
