@@ -9,7 +9,7 @@ duplicate it in a new file.
 
 <!-- ASTRYX:START -->
 
-Astryx v0.5.0 · 163 components CLI: run every command as `pnpm exec astryx <cmd>` (shown below as
+Astryx v0.5.4 · 163 components CLI: run every command as `pnpm exec astryx <cmd>` (shown below as
 `astryx ...`).
 
 SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled: import

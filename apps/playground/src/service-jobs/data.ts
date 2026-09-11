@@ -66,7 +66,7 @@ const PRIORITY_CYCLE: JobPriority[] = ['normal', 'normal', 'high', 'urgent', 'no
 function createRng(seed: number) {
   let state = seed >>> 0;
   return () => {
-    state = (state + 0x6d_2b_79_f5) >>> 0;
+    state = (state + 1_831_565_813) >>> 0;
     let t = state;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t = (t + Math.imul(t ^ (t >>> 7), t | 61)) ^ t;

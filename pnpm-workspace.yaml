@@ -6,35 +6,35 @@ packages:
 catalogMode: prefer
 
 catalog:
-  '@astryxdesign/build': 0.5.0
-  '@astryxdesign/cli': 0.5.0
-  '@astryxdesign/core': 0.5.0
-  '@astryxdesign/theme-neutral': 0.5.0
+  '@astryxdesign/build': 0.5.4
+  '@astryxdesign/cli': 0.5.4
+  '@astryxdesign/core': 0.5.4
+  '@astryxdesign/theme-neutral': 0.5.4
   '@babel/core': 8.0.1
-  '@base-ui/react': 1.7.0
-  '@base-ui/utils': 0.3.2
+  '@base-ui/react': 1.8.0
+  '@base-ui/utils': 0.4.0
   '@phosphor-icons/react': 2.1.10
-  '@oxlint/plugins': 1.80.0
+  '@oxlint/plugins': 1.82.0
   '@stylexjs/babel-plugin': 0.19.0
   '@stylexjs/stylex': 0.19.0
   '@stylexjs/unplugin': 0.19.0
-  '@tanstack/react-router': 1.170.32
-  '@tanstack/react-start': 1.168.49
-  '@tanstack/router-cli': 1.167.33
-  '@types/node': 26.4.0
-  '@types/react': 19.2.18
-  '@types/react-dom': 19.2.5
-  '@vitejs/plugin-react': 6.1.0
-  oxc-transform-react: 0.147.0
-  oxlint: 1.80.0
-  react: 19.2.8
-  react-dom: 19.2.8
+  '@tanstack/react-router': 1.170.34
+  '@tanstack/react-start': 1.168.51
+  '@tanstack/router-cli': 1.167.35
+  '@types/node': 26.5.1
+  '@types/react': 19.3.0
+  '@types/react-dom': 19.3.0
+  '@vitejs/plugin-react': 6.1.1
+  oxc-transform-react: 0.149.0
+  oxlint: 1.82.0
+  react: 19.3.0
+  react-dom: 19.3.0
   typescript: 7.0.2
   unplugin: 3.3.0
-  vite: npm:@voidzero-dev/vite-plus-core@0.3.0
-  vite-plus: 0.3.0
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.1
+  vite-plus: 0.3.1
   vitest: 4.1.11
-  vitest-browser-react: 2.2.0
+  vitest-browser-react: 2.3.0
 overrides:
   vite: 'catalog:'
   '@types/node': 'catalog:'
