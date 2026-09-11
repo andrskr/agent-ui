@@ -19,14 +19,25 @@ function configureAstryxSsr(): Plugin {
   };
 }
 
+function configureAstryxStylex(): Array<Plugin> {
+  const plugins = astryxStylex({
+    rootDir: import.meta.dirname,
+    lightningcssTargets: LIGHTNINGCSS_TARGETS,
+  });
+  for (const plugin of plugins) {
+    if (plugin.name === 'astryx-build-layer-split') {
+      // The client build emits CSS. The server build does not.
+      plugin.applyToEnvironment = (environment) => environment.name === 'client';
+    }
+  }
+  return plugins;
+}
+
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
     tanstackStart(),
-    ...astryxStylex({
-      rootDir: import.meta.dirname,
-      lightningcssTargets: LIGHTNINGCSS_TARGETS,
-    }),
+    ...configureAstryxStylex(),
     configureAstryxSsr(),
     viteReact({ compiler: true }),
   ],

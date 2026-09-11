@@ -18,7 +18,7 @@ export const Route = createRootRoute({
       // eslint-disable-next-line unicorn/text-encoding-identifier-case -- HTML charset attribute, not a Node.js encoding identifier
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Something Something UI' },
+      { title: 'Playground' },
     ],
     links: [
       { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
