@@ -3,6 +3,9 @@ packages:
   - packages/*
   - tools/*
 
+cargo:
+  enabled: true
+
 catalogMode: prefer
 
 catalog:
