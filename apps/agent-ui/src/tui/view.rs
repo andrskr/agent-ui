@@ -1,46 +1,30 @@
 use super::{
+    details::content_lines,
+    history::{History, HistoryRow, local_stamp},
     layout::*,
     state::{App, DetailTab, FormField, Modal},
     theme::*,
 };
-use crate::report::{Report, State};
+use crate::report::Report;
 use ratatui::{prelude::*, widgets::*};
 
 fn block(title: &str) -> Block<'_> {
     Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(Style::default().fg(BORDER))
         .title(Line::from(format!(" {title} ")).fg(MUTED))
         .padding(Padding::horizontal(2))
 }
-fn state_color(state: State) -> Color {
-    match state {
-        State::Ready => GREEN,
-        State::Failed => RED,
-        State::Cancelled | State::Interrupted => MUTED,
-        _ => GOLD,
+fn fit(text: &str, width: u16) -> String {
+    if Line::from(text).width() <= usize::from(width) {
+        return text.to_owned();
     }
-}
-fn number(n: Option<u64>) -> String {
-    let Some(n) = n else {
-        return "Not reported".into();
-    };
-    let raw = n.to_string();
-    raw.chars()
-        .enumerate()
-        .fold(String::new(), |mut s, (i, c)| {
-            if i > 0 && (raw.len() - i).is_multiple_of(3) {
-                s.push(',');
-            }
-            s.push(c);
-            s
-        })
-}
-fn kv(label: &str, value: impl Into<String>) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{label:<19}"), Style::default().fg(MUTED)),
-        Span::styled(value.into(), Style::default().fg(TEXT)),
-    ])
+    let mut value = text.to_owned();
+    while Line::from(value.as_str()).width() >= usize::from(width) && !value.is_empty() {
+        value.pop();
+    }
+    value.push('…');
+    value
 }
 fn button(frame: &mut Frame, area: Rect, label: &str, primary: bool) {
     frame.render_widget(
@@ -49,36 +33,68 @@ fn button(frame: &mut Frame, area: Rect, label: &str, primary: bool) {
             .style(if primary {
                 Style::default().bg(ACCENT).fg(BG).bold()
             } else {
-                Style::default().bg(SELECTED).fg(TEXT)
+                Style::default().bg(PANEL).fg(TEXT)
             }),
         area,
     );
 }
+pub(super) struct PreviewInfo<'a> {
+    pub id: &'a str,
+    pub ready: bool,
+}
+pub(super) struct Screen<'a> {
+    pub history: &'a History,
+    pub tab: DetailTab,
+    pub scroll: Option<u16>,
+    pub searching: bool,
+    pub notice: &'a str,
+    pub note: &'a str,
+    pub preview: Option<PreviewInfo<'a>>,
+    pub active: bool,
+}
 pub(super) fn draw(frame: &mut Frame, app: &App) {
+    draw_screen(
+        frame,
+        &Screen {
+            history: &app.history,
+            tab: app.tab,
+            scroll: app.scroll,
+            searching: app.searching,
+            notice: &app.notice,
+            note: &app.agent_note,
+            preview: app.preview.as_ref().map(|p| PreviewInfo {
+                id: p.id(),
+                ready: p.is_ready(),
+            }),
+            active: app.active.is_some(),
+        },
+    );
+    if frame.area().width >= 76 && frame.area().height >= 24 && app.modal != Modal::None {
+        modal(frame, app);
+    }
+}
+pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
     let area = frame.area();
     frame.render_widget(Block::default().bg(BG).fg(TEXT), area);
     if area.width < 76 || area.height < 24 {
         frame.render_widget(
-            Paragraph::new("AGENT UI\n\nUse at least 76 columns and 24 rows.\n\nPress q to quit.")
-                .block(block("Terminal size")),
+            Paragraph::new("Use at least 76 columns and 24 rows.\nPress q to quit.")
+                .wrap(Wrap { trim: false }),
             area,
         );
         return;
     }
     let (outer, panels) = regions(area);
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("  AGENT UI", Style::default().fg(TEXT).bold()),
-            Span::styled("   /   Experiments", Style::default().fg(MUTED)),
-        ]))
-        .block(
+        Paragraph::new(" AGENT UI").bold().block(
             Block::default()
+                .border_type(BorderType::Plain)
                 .borders(Borders::BOTTOM)
                 .border_style(Style::default().fg(BORDER)),
         ),
         outer[0],
     );
-    button(frame, new_button(area), " + New run  n ", true);
+    button(frame, new_button(area), "+ New run  n", false);
     frame.render_widget(
         Block::default()
             .borders(Borders::RIGHT)
@@ -87,343 +103,183 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     );
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" RUNS", Style::default().fg(MUTED).bold()),
-            Span::styled(format!("  {}", app.runs.len()), Style::default().fg(MUTED)),
+            Span::styled(" Runs", Style::default().bold()),
+            Span::styled("  Local time", Style::default().fg(MUTED)),
         ])),
         Rect::new(panels[0].x, panels[0].y, panels[0].width, 1),
     );
-    let inner = run_list_area(panels[0]);
-    let start = app
-        .selected
-        .saturating_sub((inner.height as usize / 4).saturating_sub(1));
-    let rows: Vec<_> = app
-        .runs
-        .iter()
-        .enumerate()
-        .skip(start)
-        .flat_map(|(i, r)| {
-            let selected = i == app.selected;
-            let style = Style::default()
-                .fg(TEXT)
-                .bg(if selected { SELECTED } else { BG });
-            [
-                ListItem::new(
-                    Line::from(format!("{} {}", if selected { "▎" } else { " " }, r.task)).bold(),
-                )
-                .style(style),
-                ListItem::new(Line::from(vec![
-                    Span::styled(
-                        format!("  ● {}", r.state.label()),
-                        Style::default().fg(state_color(r.state)),
-                    ),
-                    Span::styled(
-                        format!("  {}", r.id.rsplit('-').next().unwrap_or(&r.id)),
-                        Style::default().fg(MUTED),
-                    ),
-                ]))
-                .style(style),
-                ListItem::new(
-                    Line::from(format!(
-                        "  {} · {} out",
-                        r.agent_seconds
-                            .map(|s| format!("{s:.1}s"))
-                            .unwrap_or("—".into()),
-                        number(r.usage.as_ref().map(|u| u.output_tokens))
-                    ))
-                    .fg(MUTED),
-                )
-                .style(style),
-                ListItem::new(""),
-            ]
-        })
-        .collect();
-    frame.render_widget(List::new(rows), inner);
-    if let Some(run) = app.current() {
-        details(frame, panels[1], app, run);
+    let search = search_area(panels[0]);
+    let query = &screen.history.query;
+    let search_text = if screen.searching || !query.is_empty() {
+        format!("/ {query}")
     } else {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from(""),
-                Line::from("Your next experiment starts here.")
-                    .fg(TEXT)
-                    .bold(),
-                Line::from(""),
-                Line::from("Choose a task. Run Codex. Review what it builds.").fg(MUTED),
-                Line::from(""),
-                Line::from("  01   Start with a fresh copy of your app"),
-                Line::from(""),
-                Line::from("  02   Keep the code, timing, and token usage"),
-                Line::from(""),
-                Line::from("  03   Open the result in your browser or editor"),
-                Line::from(""),
-                Line::from("Press n or click New run to choose a task.").fg(ACCENT),
-            ])
-            .wrap(Wrap { trim: false })
-            .block(Block::default().padding(Padding::horizontal(3))),
-            panels[1],
-        );
-    }
+        "/ Search".into()
+    };
     frame.render_widget(
-        Paragraph::new(format!(" {}", app.notice))
-            .fg(MUTED)
-            .wrap(Wrap { trim: true }),
-        outer[2],
+        Paragraph::new(search_text)
+            .fg(if screen.searching { ACCENT } else { MUTED })
+            .scroll((
+                0,
+                (query.chars().count() as u16 + 3).saturating_sub(search.width),
+            )),
+        search,
     );
-    let mut shortcuts = vec![
-        ("↑↓", "runs"),
-        ("Tab", "view"),
-        ("n", "new"),
-        ("?", "help"),
-        ("q", "quit"),
-    ];
-    if app.active.is_some() {
-        shortcuts.insert(3, ("c", "cancel run"));
+    if screen.searching {
+        frame.set_cursor_position((
+            search.x + (query.chars().count() as u16 + 2).min(search.width.saturating_sub(1)),
+            search.y,
+        ));
     }
-    if app.preview.is_some() {
-        shortcuts.insert(3, ("x", "stop preview"));
-    }
-    let spans: Vec<_> = shortcuts
-        .into_iter()
-        .flat_map(|(key, label)| {
-            [
-                Span::styled(format!(" {key} "), Style::default().fg(TEXT).bg(PANEL)),
-                Span::styled(format!(" {label}   "), Style::default().fg(MUTED)),
-            ]
-        })
-        .collect();
-    frame.render_widget(Paragraph::new(Line::from(spans)), outer[3]);
-    if app.modal != Modal::None {
-        modal(frame, app);
-    }
-}
-fn details(frame: &mut Frame, area: Rect, app: &App, run: &Report) {
-    let parts = detail_parts(area);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled(run.task.clone(), Style::default().fg(TEXT).bold()),
-                Span::styled(
-                    format!("   ● {}", run.state.label()),
-                    Style::default().fg(state_color(run.state)),
-                ),
-            ]),
-            Line::from(format!(
-                "{}  ·  {} effort  ·  Local Codex",
-                run.model_requested, run.effort_requested
-            ))
+    let list = run_list_area(panels[0]);
+    let rows = screen.history.window(list.height);
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new(if query.is_empty() {
+                "No runs yet"
+            } else {
+                "No matching runs"
+            })
             .fg(MUTED),
-            Line::from(format!("Run {}", run.id)).fg(MUTED),
-        ]),
-        parts[0],
-    );
-    let tabs = Layout::horizontal([
-        Constraint::Length(15),
-        Constraint::Length(15),
-        Constraint::Length(15),
-        Constraint::Min(0),
-    ])
-    .split(parts[1]);
-    for (i, label) in ["1 Overview", "2 Activity", "3 Report"].iter().enumerate() {
-        let row = Rect::new(tabs[i].x, tabs[i].y, tabs[i].width.saturating_sub(1), 1);
-        frame.render_widget(
-            Paragraph::new(*label).alignment(Alignment::Center).style(
-                if app.tab == DetailTab::ALL[i] {
-                    Style::default().bg(SELECTED).fg(ACCENT).bold()
-                } else {
-                    Style::default().fg(MUTED)
-                },
-            ),
-            row,
+            list,
         );
     }
-    match app.tab {
-        DetailTab::Overview => overview(frame, parts[2], run),
-        DetailTab::Activity => {
-            let lines: Vec<_> = run
-                .activity
-                .iter()
-                .map(|a| {
-                    Line::from(vec![
-                        Span::styled(
-                            format!(
-                                "{:>7.1}s  ",
-                                a.at_ms.saturating_sub(run.created_at_ms) as f64 / 1000.0
-                            ),
-                            Style::default().fg(MUTED),
-                        ),
-                        Span::raw(a.text.clone()),
-                    ])
-                })
-                .collect();
-            let last = lines
-                .len()
-                .saturating_sub(parts[2].height.saturating_sub(2) as usize)
-                .min(u16::MAX as usize) as u16;
-            let offset = app.scroll.unwrap_or(last).min(last);
-            frame.render_widget(
-                Paragraph::new(lines)
-                    .scroll((offset, 0))
-                    .block(block("ACTIVITY · PgUp / PgDn")),
-                parts[2],
-            );
+    for (offset, row) in rows.iter().enumerate() {
+        let rect = Rect::new(list.x, list.y + offset as u16, list.width, 1);
+        match row {
+            HistoryRow::Date(date) => {
+                frame.render_widget(Paragraph::new(date.as_str()).fg(MUTED), rect)
+            }
+            HistoryRow::Gap => {}
+            HistoryRow::Run { index, line } => {
+                let run = &screen.history.runs[*index];
+                let selected = screen.history.current().is_some_and(|r| r.id == run.id);
+                let style = Style::default().bg(if selected { SELECTED } else { BG });
+                frame.render_widget(Block::default().style(style), rect);
+                if selected {
+                    frame.render_widget(
+                        Paragraph::new("▎").fg(ACCENT),
+                        Rect::new(rect.x, rect.y, 1, 1),
+                    );
+                }
+                let text = Rect::new(rect.x + 2, rect.y, rect.width.saturating_sub(3), 1);
+                match line {
+                    0 => {
+                        frame.render_widget(Paragraph::new(fit(&run.task, text.width)).bold(), text)
+                    }
+                    1 => {
+                        let clock = local_stamp(run.created_at_ms).1;
+                        frame.render_widget(
+                            Paragraph::new(state_label(run.state)).fg(state_color(run.state)),
+                            Rect::new(text.x, text.y, text.width.saturating_sub(6), 1),
+                        );
+                        frame.render_widget(
+                            Paragraph::new(clock).fg(MUTED).alignment(Alignment::Right),
+                            Rect::new(text.right().saturating_sub(5), text.y, 5, 1),
+                        );
+                    }
+                    _ => frame.render_widget(
+                        Paragraph::new(fit(
+                            &format!("{} · {}", run.model_requested, run.effort_requested),
+                            text.width,
+                        ))
+                        .fg(MUTED),
+                        text,
+                    ),
+                }
+            }
         }
-        _ => {
-            let json = serde_json::to_string_pretty(run).unwrap_or_default();
-            let offset = app.scroll.unwrap_or_default().min(
-                json.lines()
-                    .count()
-                    .saturating_sub(parts[2].height.saturating_sub(2) as usize)
-                    .min(u16::MAX as usize) as u16,
-            );
-            frame.render_widget(
-                Paragraph::new(
-                    json.lines()
-                        .map(|line| {
-                            if let Some((key, value)) = line.split_once(": ") {
-                                Line::from(vec![
-                                    Span::styled(format!("{key}: "), Style::default().fg(ACCENT)),
-                                    Span::styled(value.to_owned(), Style::default().fg(TEXT)),
-                                ])
-                            } else {
-                                Line::from(line.to_owned()).fg(MUTED)
-                            }
-                        })
-                        .collect::<Vec<_>>(),
-                )
-                .scroll((offset, 0))
-                .block(block("SAVED REPORT · PgUp / PgDn").bg(PANEL)),
-                parts[2],
-            );
-        }
+    }
+    if let Some(run) = screen.history.current() {
+        details(frame, panels[1], screen, run);
+    } else {
+        frame.render_widget(
+            Paragraph::new(if query.is_empty() {
+                "Press n to start a run."
+            } else {
+                "Change the search to find a run."
+            })
+            .fg(MUTED),
+            detail_parts(panels[1])[2],
+        );
+    }
+    frame.render_widget(Paragraph::new(screen.notice).fg(MUTED), outer[2]);
+    let footer = if screen.searching {
+        " Type to search   Enter Apply   Esc Clear".into()
+    } else {
+        format!(
+            " ↑↓ Select   Tab View   / Search   ? Help{}",
+            if screen.active { "   c Cancel" } else { "" }
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(footer).fg(MUTED).block(
+            Block::default()
+                .border_type(BorderType::Plain)
+                .borders(Borders::TOP)
+                .border_style(Style::default().fg(BORDER)),
+        ),
+        outer[3],
+    );
+    if !screen.searching {
+        frame.render_widget(
+            Paragraph::new("q Quit ")
+                .alignment(Alignment::Right)
+                .fg(MUTED),
+            Rect::new(outer[3].right() - 8, outer[3].y + 1, 8, 1),
+        );
     }
 }
-fn overview(frame: &mut Frame, area: Rect, run: &Report) {
-    let usage = run.usage.as_ref();
-    let seconds = run
-        .agent_seconds
-        .map(|s| format!("{s:.1}s"))
-        .unwrap_or("—".into());
-    let check = run
-        .verification
-        .as_ref()
-        .map(|c| {
-            if c.exit_code == Some(0) {
-                "Passed"
+fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>, run: &Report) {
+    let parts = detail_parts(area);
+    for (index, title) in ["Overview", "Activity", "Evidence"].iter().enumerate() {
+        let rect = Rect::new(parts[0].x + index as u16 * 12, parts[0].y, 11, 1);
+        frame.render_widget(
+            Paragraph::new(*title).style(if screen.tab == DetailTab::ALL[index] {
+                Style::default().fg(ACCENT).bold().underlined()
             } else {
-                "Failed"
-            }
-        })
-        .unwrap_or("Not run");
-    if area.width < 65 || area.height < 16 {
-        frame.render_widget(
-            Paragraph::new(vec![
-                kv("Agent time", seconds),
-                kv("Input tokens", number(usage.map(|u| u.input_tokens))),
-                kv("Cached input", number(usage.map(|u| u.cached_input_tokens))),
-                kv("Output tokens", number(usage.map(|u| u.output_tokens))),
-                kv("Verification", check),
-                kv("Human review", "Pending"),
-                Line::from(run.error.clone().unwrap_or_default()).fg(RED),
-            ]),
-            Rect::new(area.x, area.y, area.width, area.height.saturating_sub(2)),
-        );
-    } else {
-        let rows = Layout::vertical([
-            Constraint::Length(4),
-            Constraint::Min(8),
-            Constraint::Length(2),
-        ])
-        .spacing(2)
-        .split(area);
-        let metrics = Layout::horizontal([
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-        ])
-        .spacing(1)
-        .split(rows[0]);
-        for (rect, title, value, hint) in [
-            (metrics[0], "AGENT TIME", seconds, "Codex duration"),
-            (
-                metrics[1],
-                "INPUT TOKENS",
-                number(usage.map(|u| u.input_tokens)),
-                "Includes cached input",
-            ),
-            (
-                metrics[2],
-                "OUTPUT TOKENS",
-                number(usage.map(|u| u.output_tokens)),
-                "Reported by Codex",
-            ),
-        ] {
-            frame.render_widget(
-                Paragraph::new(vec![
-                    Line::from(title).fg(MUTED),
-                    Line::from(value).fg(TEXT).bold(),
-                    Line::from(hint).fg(MUTED),
-                ])
-                .block(Block::default().bg(PANEL).padding(Padding::new(2, 1, 1, 0))),
-                rect,
-            );
-        }
-        let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .spacing(2)
-            .split(rows[1]);
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from("RESULT").fg(MUTED).bold(),
-                Line::from(""),
-                kv("Verification", check),
-                kv("Human review", "Pending"),
-                kv("Changed files", run.changed_files.len().to_string()),
-                kv("Setup time", format!("{:.1}s", run.setup_seconds)),
-            ]),
-            cols[0],
-        );
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from("TOKEN USAGE").fg(MUTED).bold(),
-                Line::from(""),
-                kv("Cached input", number(usage.map(|u| u.cached_input_tokens))),
-                kv(
-                    "Uncached input",
-                    number(usage.map(|u| u.input_tokens.saturating_sub(u.cached_input_tokens))),
-                ),
-                kv("Output", number(usage.map(|u| u.output_tokens))),
-                Line::from("Subscription · no reported charge").fg(MUTED),
-            ]),
-            cols[1],
-        );
-        let note = run.error.as_deref().unwrap_or(match run.state {
-            State::Ready => "Ready for your review. Open the app to check the result.",
-            State::Preparing => "Preparing the app and task inputs...",
-            State::Running => "Codex is working. Open Activity to follow the run.",
-            State::Verifying => "Checking the app before review...",
-            _ => "Partial code and evidence are available for review.",
-        });
-        frame.render_widget(
-            Paragraph::new(note)
-                .fg(if run.error.is_some() { RED } else { MUTED })
-                .wrap(Wrap { trim: false }),
-            rows[2],
+                Style::default().fg(MUTED)
+            }),
+            rect,
         );
     }
-    for (i, (rect, label)) in action_areas(area)
-        .iter()
-        .zip([
-            "b Preview",
-            "e Open code",
-            "r JSON",
-            if area.width >= 65 {
-                "a Agent report"
-            } else {
-                "a Notes"
-            },
-        ])
-        .enumerate()
-    {
-        button(frame, *rect, label, i == 0);
+    let selected_preview = screen.preview.as_ref().filter(|p| p.id == run.id);
+    let actions = action_areas(parts[1]);
+    let label = match selected_preview {
+        Some(p) if p.ready => "b Open preview",
+        Some(_) => "Starting…",
+        None if actions[0].width >= 16 => "b Start preview",
+        None => "b Preview",
+    };
+    button(
+        frame,
+        actions[0],
+        label,
+        selected_preview.is_none_or(|p| p.ready),
+    );
+    button(frame, actions[1], "e Open code", false);
+    if selected_preview.is_some() {
+        button(frame, actions[2], "x Stop", false);
+    }
+    let lines = content_lines(run, screen.tab, screen.note, parts[2].width);
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let last = paragraph
+        .line_count(parts[2].width)
+        .saturating_sub(parts[2].height as usize)
+        .min(u16::MAX as usize) as u16;
+    let offset = screen
+        .scroll
+        .unwrap_or(if screen.tab == DetailTab::Activity {
+            last
+        } else {
+            0
+        })
+        .min(last);
+    frame.render_widget(paragraph.scroll((offset, 0)), parts[2]);
+    if last > 0 {
+        frame.render_widget(
+            Paragraph::new(if offset < last { "↓" } else { "↑" }).fg(MUTED),
+            Rect::new(area.right() - 1, parts[2].bottom() - 1, 1, 1),
+        );
     }
 }
 fn modal(frame: &mut Frame, app: &App) {
@@ -444,7 +300,7 @@ fn modal(frame: &mut Frame, app: &App) {
     );
     if app.modal == Modal::New {
         frame.render_widget(
-            Paragraph::new("A fresh start. A result you can review.").fg(MUTED),
+            Paragraph::new("Select a task and run settings.").fg(MUTED),
             Rect::new(area.x + 4, area.y + 2, area.width.saturating_sub(8), 1),
         );
         let task = app
@@ -538,7 +394,7 @@ fn modal(frame: &mut Frame, app: &App) {
                 Line::from("y  Remove run       Esc  Back").fg(RED),
             ]
         } else {
-            "\n↑↓ / j k       Select a run\nTab / 1 2 3    Switch detail views\nPgUp / PgDn    Scroll activity or report\nHome / End     First / last page; End follows activity\nn              Select a task and run Codex\ne / r / a      Open code / JSON / agent report\nb              Start a browser preview\nx              Stop the preview\nc              Cancel the active run\nd              Remove the selected run\nq / Ctrl+C     Quit and stop owned processes\n\nClick tabs, buttons, or fields to select them.\nRun files remain on disk after you quit.\n\nEsc  Back".lines().map(|s| Line::from(s.to_owned())).collect()
+            "↑↓ / j k       Select a run\nTab / 1 2 3    Switch views\n/              Search runs; Esc clears search\nPgUp / PgDn    Scroll the current view\nHome / End     First / last page; End follows activity\nn              Select a task and run Codex\ne / r / a / f  Code / JSON / agent note / evidence\nb / x          Start or open / stop preview\nc              Cancel the active run\nd              Remove the selected run\nq / Ctrl+C     Quit and stop owned processes\n\nClick tabs, buttons, or fields to select them.\nRun files remain on disk after you quit.\n\nEsc  Back".lines().map(|s| Line::from(s.to_owned())).collect()
         };
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }),

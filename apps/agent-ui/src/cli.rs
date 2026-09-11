@@ -147,7 +147,7 @@ pub fn run() -> Result<()> {
             width,
             height,
         } => {
-            let app = tui::App::new(store, cli.settings()?)?;
+            let app = tui::App::new(store, cli.settings())?;
             if snapshot {
                 print!("{}", tui::snapshot(&app, width, height)?);
             } else {
@@ -155,7 +155,7 @@ pub fn run() -> Result<()> {
             }
         }
         Action::Run { task } => {
-            let active = runner::start(store.clone(), &task, cli.settings()?)?;
+            let active = runner::start(store.clone(), &task, cli.settings())?;
             active.cancellation().install_signal_handler()?;
             eprintln!("Run {}\n{}", active.id, store.dir(&active.id)?.display());
             let report = active.join()?;
@@ -170,21 +170,27 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 impl Cli {
-    fn settings(&self) -> Result<Settings> {
-        Ok(Settings {
+    fn settings(&self) -> Settings {
+        Settings {
             model: self.model.clone(),
             effort: self.effort,
             timeout: self.timeout,
-            tools: Tools::discover(self.codex.as_deref())?,
-        })
+            codex: self.codex.clone(),
+        }
     }
 }
 fn doctor(store: &Store, tools: &Tools) -> Result<()> {
-    for (name, path) in [("Codex", &tools.codex), ("Node", &tools.node)] {
+    for (name, path) in [
+        ("Codex", &tools.codex),
+        ("Node", &tools.node),
+        ("Vite+", &tools.vp),
+        ("Ripgrep", &tools.rg),
+    ] {
         println!(
             "{name}: {}",
             codex::output(std::process::Command::new(path).arg("--version"))?
         );
+        println!("Path: {}", path.display());
     }
     println!(
         "Project: {}\nRun storage: {}\nTasks: {}",
@@ -201,4 +207,29 @@ fn doctor(store: &Store, tools: &Tools) -> Result<()> {
         }
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ui_settings_keep_an_unavailable_tool_override_without_resolving_it() {
+        let cli = Cli::try_parse_from([
+            "agent-ui",
+            "--codex",
+            "/missing/codex",
+            "--model",
+            "requested-model",
+            "ui",
+        ])
+        .unwrap();
+        let settings = cli.settings();
+        assert_eq!(settings.model, "requested-model");
+        assert_eq!(
+            settings.codex.as_deref(),
+            Some(std::path::Path::new("/missing/codex"))
+        );
+        assert!(settings.validate().is_ok());
+    }
 }

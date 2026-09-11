@@ -91,13 +91,21 @@ impl Tools {
                 "Cannot resolve the Codex shim. Pass --codex with the native binary path",
             )?;
         }
+        let codex = codex.canonicalize()?;
+        let rg = bundled_rg(&codex)
+            .filter(|path| path.is_file())
+            .or_else(|| which("rg").ok())
+            .context("Cannot find ripgrep in the Codex package or PATH. Install ripgrep or reinstall Codex")?;
         Ok(Self {
-            codex: codex.canonicalize()?,
+            codex,
             vp: which("vp")?,
             node,
-            rg: which("rg")?.canonicalize()?,
+            rg: rg.canonicalize()?,
         })
     }
+}
+fn bundled_rg(codex: &Path) -> Option<PathBuf> {
+    Some(codex.parent()?.parent()?.join("codex-path/rg"))
 }
 pub fn auth_seed(store: &Store) -> Result<PathBuf> {
     let seed = store.root().join("private/auth.json");

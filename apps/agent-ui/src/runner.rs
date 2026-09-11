@@ -1,5 +1,5 @@
 use crate::{
-    codex::{self, Session},
+    codex::{self, Session, Tools},
     process::{self, Cancel},
     report::{Check, Report, State, now},
     storage::{CopyMode, Store, copy_tree, inventory, write_json},
@@ -47,6 +47,7 @@ impl Drop for Active {
 }
 pub fn start(store: Store, task: &str, settings: Settings) -> Result<Active> {
     settings.validate()?;
+    let tools = Tools::discover(settings.codex.as_deref())?;
     let lock = store.lock()?;
     let task_path = store.task(task)?;
     let prompt = fs::read_to_string(task_path.join("task.md"))?;
@@ -61,7 +62,7 @@ pub fn start(store: Store, task: &str, settings: Settings) -> Result<Active> {
     let worker_cancel = cancel.clone();
     let worker = thread::spawn(move || {
         let _lock = lock;
-        let result = run(&store, &settings, &worker_cancel, &mut report);
+        let result = run(&store, &settings, &tools, &worker_cancel, &mut report);
         if let Err(error) = result {
             report.state = if worker_cancel.is_cancelled() {
                 State::Cancelled
@@ -84,16 +85,24 @@ pub fn start(store: Store, task: &str, settings: Settings) -> Result<Active> {
 struct Execution<'a> {
     store: &'a Store,
     settings: &'a Settings,
+    tools: &'a Tools,
     cancel: &'a Cancel,
     report: &'a mut Report,
     dir: PathBuf,
     evidence: PathBuf,
 }
-fn run(store: &Store, settings: &Settings, cancel: &Cancel, report: &mut Report) -> Result<()> {
+fn run(
+    store: &Store,
+    settings: &Settings,
+    tools: &Tools,
+    cancel: &Cancel,
+    report: &mut Report,
+) -> Result<()> {
     let dir = store.dir(&report.id)?;
     let mut execution = Execution {
         store,
         settings,
+        tools,
         cancel,
         report,
         evidence: dir.join("evidence"),
@@ -107,7 +116,8 @@ impl Execution<'_> {
     fn prepare(&mut self) -> Result<Session> {
         let Self {
             store,
-            settings,
+            settings: _,
+            tools,
             cancel,
             report,
             dir,
@@ -134,17 +144,11 @@ impl Execution<'_> {
         report.record("Copied the starter and task inputs");
         store.save(report)?;
         ensure!(!cancel.is_cancelled(), "Run cancelled during setup");
-        report.codex_version = Some(codex::output(
-            Command::new(&settings.tools.codex).arg("--version"),
-        )?);
-        report.node_version = Some(codex::output(
-            Command::new(&settings.tools.node).arg("--version"),
-        )?);
-        report.vp_version = Some(codex::output(
-            Command::new(&settings.tools.vp).arg("--version"),
-        )?);
+        report.codex_version = Some(codex::output(Command::new(&tools.codex).arg("--version"))?);
+        report.node_version = Some(codex::output(Command::new(&tools.node).arg("--version"))?);
+        report.vp_version = Some(codex::output(Command::new(&tools.vp).arg("--version"))?);
         let install = process::execute(
-            Command::new(&settings.tools.vp)
+            Command::new(&tools.vp)
                 .current_dir(&report.app)
                 .args(["install", "--frozen-lockfile"])
                 .env("CI", "1"),
@@ -168,12 +172,12 @@ impl Execution<'_> {
                 .args(["init", "-q"]),
         )?;
         report.before = inventory(&report.app)?;
-        let session = Session::new(store, &report.id, &report.app, &settings.tools)?;
+        let session = Session::new(store, &report.id, &report.app, tools)?;
         fs::write(evidence.join("codex-config.toml"), codex::CONFIG)?;
         write_json(&evidence.join("environment.json"), &session.environment())?;
         let login = process::execute(
             session
-                .command(&settings.tools, &report.app)
+                .command(tools, &report.app)
                 .args(["login", "status"]),
             &evidence.join("login.log"),
             &evidence.join("login.stderr.log"),
@@ -190,6 +194,7 @@ impl Execution<'_> {
         let Self {
             store,
             settings,
+            tools,
             cancel,
             report,
             dir,
@@ -198,7 +203,7 @@ impl Execution<'_> {
         let args = codex::exec_args(settings, &report.app, &dir.join("agent-report.md"))?;
         write_json(
             &evidence.join("command.json"),
-            &serde_json::json!({"program": settings.tools.codex, "args": args}),
+            &serde_json::json!({"program": tools.codex, "args": args}),
         )?;
         let prompt = fs::read_to_string(dir.join("inputs/task.md"))?;
         fs::write(evidence.join("prompt.txt"), &prompt)?;
@@ -207,7 +212,7 @@ impl Execution<'_> {
         report.record("Codex started");
         store.save(report)?;
         let result = process::execute(
-            session.command(&settings.tools, &report.app).args(&args),
+            session.command(tools, &report.app).args(&args),
             &evidence.join("events.jsonl"),
             &evidence.join("codex.stderr.log"),
             Some(&prompt),
@@ -235,7 +240,8 @@ impl Execution<'_> {
     fn verify(&mut self) -> Result<()> {
         let Self {
             store,
-            settings,
+            settings: _,
+            tools,
             cancel,
             report,
             evidence,
@@ -245,7 +251,7 @@ impl Execution<'_> {
         report.record("Verification started");
         store.save(report)?;
         let check = process::execute(
-            Command::new(&settings.tools.vp)
+            Command::new(&tools.vp)
                 .current_dir(&report.app)
                 .args(["run", "verify"])
                 .env("CI", "1"),

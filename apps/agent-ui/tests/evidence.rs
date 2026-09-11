@@ -1,5 +1,4 @@
 use agent_ui::{
-    codex::Tools,
     report::Report,
     settings::{Effort, Settings},
     storage::valid_id,
@@ -12,12 +11,7 @@ fn settings() -> Settings {
         model: "test-model".into(),
         effort: Effort::Low,
         timeout: 60,
-        tools: Tools {
-            codex: "unused/codex".into(),
-            vp: "unused/vp".into(),
-            node: "unused/node".into(),
-            rg: "unused/rg".into(),
-        },
+        codex: None,
     }
 }
 

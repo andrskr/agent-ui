@@ -1,12 +1,27 @@
 # Agent UI
 
 A local application for coding experiments. The CLI and TUI use the same Rust runner. The terminal
-view uses a charcoal background, a violet accent, and separate colours for run states.
+view uses a charcoal background, a mint accent, and separate colours for run states.
+
+The run list groups runs by local creation date. Each item shows the task, state, creation time,
+requested model, and effort. Press `/` to search by task, state, model, effort, or run ID. Search
+words must all match. Press Enter to keep the search or Esc to clear it. New runs do not move the
+current selection.
 
 Click a run, tab, or review button to select it. In the New experiment form, click a field to focus
 it. Click its arrows to change the task or effort. The mouse wheel selects runs in the sidebar and
-scrolls the Activity or Report view. Keyboard controls remain available through `?`. The layout
-supports terminals of at least 76 columns and 24 rows. It respects `NO_COLOR`.
+scrolls the selected detail view, including long overview content. Keyboard controls remain
+available through `?`. The layout supports terminals of at least 76 columns and 24 rows. It respects
+`NO_COLOR`.
+
+The Overview shows one duration breakdown, one token table, verification, changed file paths, and an
+excerpt from the saved agent note. File labels mean added (`A`), modified (`M`), deleted (`D`), or
+unknown (`?`). The note excerpt uses up to four non-empty lines and 600 characters. Open the full
+note with `a`. Missing notes and measurements remain explicit.
+
+Preview and Open code stay visible across Overview, Activity, and Evidence. The preview control
+shows startup and ready states. Stop applies to the preview owned by this app. Evidence provides the
+JSON report, full agent note, and evidence folder through `r`, `a`, and `f`.
 
 Run from the repository root:
 
@@ -28,10 +43,12 @@ be available to your subscription. Codex errors are saved with the run.
 Use `--project <folder>` when you start outside this repository. Use `--data-dir <folder>` to choose
 a different storage location. It must be outside the repository.
 
-The application needs Cargo, Node, Vite+, Codex, Git, and ripgrep. It currently targets macOS. The
-editor action uses Visual Studio Code. Browser actions use the default browser. Run
-`vp run agent-ui doctor` to check the local paths. Use `--codex <native-binary>` if the app cannot
-resolve your Codex launcher. No task configuration format is supported yet.
+Building the app needs Cargo. Opening the built UI and inspecting saved runs does not need Codex,
+Node, Vite+, Git, or ripgrep. Starting a run resolves these tools before creating run files. It uses
+the ripgrep bundled with Codex when available, then checks PATH. Preview needs Vite+ only. The app
+currently targets macOS. The editor action uses Visual Studio Code. Browser actions use the default
+browser. Run `vp run agent-ui doctor` to check the local paths. Use `--codex <native-binary>` if the
+app cannot resolve your Codex launcher. No task configuration format is supported yet.
 
 ## Run flow
 
@@ -56,7 +73,9 @@ apps/agent-ui/src/
   artifact.rs    Output targets shared by the CLI and TUI
   tui/
     mod.rs       Terminal setup, event loop, and restoration
-    state.rs     Selection, forms, and run actions
+    state.rs     Forms, note loading, and run actions
+    history.rs   Search, stable selection, and date groups
+    details.rs   Report content and note excerpts
     input.rs     Keyboard and mouse input
     layout.rs    Rectangles shared by rendering and mouse input
     view.rs      Rendering from app state
@@ -155,15 +174,20 @@ vp -C experiments/starter run verify
 ```
 
 The Rust tests run in memory. They check log records split across reads, token totals, missing
-usage, completion rules, source changes, ID validation, and process-result classification. Expected
-results come from fixed examples. The tests do not create files, start child processes, change the
-host environment, or open browsers or editors. There are no temporary project fixtures or shell test
-programs.
+usage, completion rules, source changes, ID validation, and process-result classification. UI tests
+check search, stable selection, small viewports, scroll extent, preview states, and mouse targets.
+They render into Ratatui memory buffers. Expected results come from fixed examples. The tests do not
+create files, start child processes, change the host environment, or open browsers or editors. There
+are no temporary project fixtures or shell test programs.
 
 These tests do not check real file copies, locks, process cleanup, authentication, or browser and
 editor integration. Those paths need a separate manual check when requested. The smoke task starts
 real Codex and writes run files. It is not part of the test suite. Earlier manual checks are not
 proof that these paths still work after a later change.
+
+The TUI uses Chrono for local date conversion. Ratatui remains pinned to 0.30.2. Its
+`unstable-rendered-line-info` feature supplies the wrapped line count used for scrolling and mouse
+targets. Review this feature when updating Ratatui.
 
 The `verify:agent-ui` task runs all format, Clippy, and Rust test checks without Vite+ caching.
 Cargo and web build commands still write normal build output and tool caches. The no-file rule

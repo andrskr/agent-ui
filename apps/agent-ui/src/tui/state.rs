@@ -1,3 +1,4 @@
+use super::history::History;
 use crate::{
     artifact::Artifact,
     preview::{self, ManagedPreview},
@@ -6,20 +7,21 @@ use crate::{
     storage::Store,
 };
 use anyhow::Result;
+use std::{fs::File, io::Read};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DetailTab {
     Overview,
     Activity,
-    Report,
+    Evidence,
 }
 impl DetailTab {
-    pub(super) const ALL: [Self; 3] = [Self::Overview, Self::Activity, Self::Report];
+    pub(super) const ALL: [Self; 3] = [Self::Overview, Self::Activity, Self::Evidence];
     pub(super) fn step(self, delta: isize) -> Self {
         let index = match self {
             Self::Overview => 0,
             Self::Activity => 1,
-            Self::Report => 2,
+            Self::Evidence => 2,
         };
         Self::ALL[(index as isize + delta).rem_euclid(3) as usize]
     }
@@ -46,14 +48,6 @@ pub(super) enum ReviewAction {
     Preview,
     Open(Artifact),
 }
-impl ReviewAction {
-    pub(super) const ALL: [Self; 4] = [
-        Self::Preview,
-        Self::Open(Artifact::Code),
-        Self::Open(Artifact::Report),
-        Self::Open(Artifact::Agent),
-    ];
-}
 #[derive(PartialEq)]
 pub(super) enum Modal {
     None,
@@ -64,9 +58,11 @@ pub(super) enum Modal {
 pub struct App {
     pub(super) store: Store,
     pub(super) settings: Settings,
-    pub(super) runs: Vec<Report>,
+    pub(super) history: History,
+    pub(super) searching: bool,
+    pub(super) agent_note: String,
+    note_id: Option<String>,
     pub(super) tasks: Vec<String>,
-    pub(super) selected: usize,
     pub(super) task: usize,
     pub(super) tab: DetailTab,
     pub(super) scroll: Option<u16>,
@@ -81,12 +77,16 @@ impl App {
         store.recover()?;
         let runs = store.list()?;
         let tasks = store.tasks()?;
-        Ok(Self {
+        let mut history = History::default();
+        history.replace(runs);
+        let mut app = Self {
             store,
             settings,
-            runs,
+            history,
+            searching: false,
+            agent_note: String::new(),
+            note_id: None,
             tasks,
-            selected: 0,
             task: 0,
             tab: DetailTab::Overview,
             scroll: None,
@@ -95,26 +95,21 @@ impl App {
             notice: String::new(),
             active: None,
             preview: None,
-        })
+        };
+        app.load_note();
+        Ok(app)
     }
     pub(super) fn current(&self) -> Option<&Report> {
-        self.runs.get(self.selected)
+        self.history.current()
     }
     pub(super) fn refresh(&mut self) -> Result<()> {
-        let selected = self.current().map(|r| r.id.clone());
-        self.runs = self.store.list()?;
-        self.selected = selected
-            .and_then(|id| self.runs.iter().position(|r| r.id == id))
-            .unwrap_or(0);
+        self.history.replace(self.store.list()?);
+        self.load_note();
         if self.active.as_ref().is_some_and(Active::finished)
             && let Some(active) = self.active.take()
         {
-            let result = active.join()?;
-            self.notice = format!(
-                "{}: {}. Press e for code or b for a browser preview.",
-                result.task,
-                result.state.label()
-            );
+            active.join()?;
+            self.notice.clear();
         }
         if let Some(preview) = &mut self.preview {
             match preview.poll() {
@@ -138,11 +133,13 @@ impl App {
             let id = active.id.clone();
             self.active = Some(active);
             self.refresh()?;
-            self.selected = self.runs.iter().position(|r| r.id == id).unwrap_or(0);
+            self.history.set_query(String::new());
+            self.history.select_id(&id);
+            self.load_note();
             self.tab = DetailTab::Activity;
             self.scroll = None;
             self.modal = Modal::None;
-            self.notice = "Run started. Press c to cancel. Partial evidence is kept.".into();
+            self.notice.clear();
         }
         Ok(())
     }
@@ -157,29 +154,56 @@ impl App {
         }
         Ok(())
     }
-    pub(super) fn last_scroll_row(&self, visible_lines: u16) -> u16 {
+    pub(super) fn last_scroll_row(&self, visible_lines: u16, width: u16) -> u16 {
         let rows = self
             .current()
-            .map(|run| match self.tab {
-                DetailTab::Activity => run.activity.len(),
-                DetailTab::Report => serde_json::to_string_pretty(run)
-                    .unwrap_or_default()
-                    .lines()
-                    .count(),
-                _ => 0,
+            .map(|run| {
+                ratatui::widgets::Paragraph::new(super::details::content_lines(
+                    run,
+                    self.tab,
+                    &self.agent_note,
+                    width,
+                ))
+                .wrap(ratatui::widgets::Wrap { trim: false })
+                .line_count(width)
             })
             .unwrap_or(0);
         rows.saturating_sub(visible_lines as usize)
             .min(u16::MAX as usize) as u16
     }
-    pub(super) fn scroll_page(&mut self, delta: i32, visible_lines: u16) {
-        let last = self.last_scroll_row(visible_lines);
+    pub(super) fn scroll_page(&mut self, delta: i32, visible_lines: u16, width: u16) {
+        let last = self.last_scroll_row(visible_lines, width);
         let current = self.scroll.unwrap_or(if self.tab == DetailTab::Activity {
             last
         } else {
             0
         });
         self.scroll = Some((i32::from(current) + delta).clamp(0, i32::from(last)) as u16);
+    }
+    pub(super) fn load_note(&mut self) {
+        let Some(run) = self.current() else {
+            self.agent_note.clear();
+            self.note_id = None;
+            return;
+        };
+        if self.note_id.as_deref() == Some(&run.id) && !run.state.active() {
+            return;
+        }
+        let id = run.id.clone();
+        let active = run.state.active();
+        let path = self.store.dir(&id).map(|dir| dir.join("agent-report.md"));
+        let mut bytes = Vec::new();
+        self.agent_note =
+            match path.and_then(|path| Ok(File::open(path)?.take(4096).read_to_end(&mut bytes)?)) {
+                Ok(_) => String::from_utf8_lossy(&bytes).into_owned(),
+                Err(_) => String::new(),
+            };
+        self.note_id = (!active).then_some(id);
+    }
+    pub(super) fn navigate(&mut self, delta: isize) {
+        self.history.navigate(delta);
+        self.scroll = None;
+        self.load_note();
     }
     pub(super) fn review(&mut self, action: ReviewAction) -> Result<()> {
         let Some(id) = self.current().map(|r| r.id.clone()) else {
@@ -197,7 +221,7 @@ impl App {
             self.preview = Some(ManagedPreview::start(
                 &self.store,
                 &id,
-                &self.settings.tools.vp,
+                &crate::codex::which("vp")?,
             )?);
             self.notice = "Starting the browser preview...".into();
         } else if let ReviewAction::Open(artifact) = action {

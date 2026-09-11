@@ -1,8 +1,7 @@
-use crate::codex::Tools;
 use anyhow::{Result, ensure};
 use clap::ValueEnum;
 use serde::Serialize;
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -44,7 +43,7 @@ pub struct Settings {
     pub model: String,
     pub effort: Effort,
     pub timeout: u64,
-    pub tools: Tools,
+    pub codex: Option<PathBuf>,
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {

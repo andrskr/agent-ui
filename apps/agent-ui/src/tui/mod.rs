@@ -1,15 +1,20 @@
+mod details;
+mod history;
 mod input;
 mod layout;
 mod state;
 mod theme;
 mod view;
 
+#[cfg(test)]
+mod tests;
+
 use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
 };
-use layout::visible_lines;
+
 use ratatui::prelude::*;
 pub use state::App;
 use std::{
@@ -53,7 +58,7 @@ pub fn run(mut app: App) -> Result<()> {
             let result = match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     let size = terminal.size()?;
-                    app.key(key, visible_lines(Rect::new(0, 0, size.width, size.height)))
+                    app.key(key, Rect::new(0, 0, size.width, size.height))
                 }
                 Event::Mouse(mouse) => {
                     let size = terminal.size()?;
