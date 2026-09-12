@@ -1,8 +1,8 @@
 mod details;
-mod history;
 mod input;
 mod layout;
 mod state;
+mod tasks;
 mod theme;
 mod view;
 

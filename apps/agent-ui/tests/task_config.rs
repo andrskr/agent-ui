@@ -1,4 +1,4 @@
-use agent_ui::{report::Report, task::TaskConfig};
+use agent_ui::task::TaskConfig;
 use serde_json::json;
 
 #[test]
@@ -68,32 +68,6 @@ fn a_malformed_starter_is_not_replaced_with_an_empty_manifest() {
     assert!(config.apply(&json!([])).is_err());
     assert!(config.apply(&json!({"dependencies": []})).is_err());
     assert!(config.apply(&json!({"devDependencies": "bad"})).is_err());
-}
-
-#[test]
-fn older_reports_load_without_claiming_a_recorded_task_config() {
-    let legacy = r#"{
-        "schema_version": 1, "id": "legacy-run", "task": "smoke",
-        "state": "ready", "created_at_ms": 1789157900000, "finished_at_ms": 1789157920000,
-        "model_requested": "gpt-5.6-luna", "effort_requested": "low",
-        "codex_version": "codex-cli 0.154.0", "node_version": "v24.21.0",
-        "vp_version": "vp v0.3.0", "runner_version": "0.1.0", "thread_id": "legacy-thread",
-        "timeout_seconds": 300, "setup_seconds": 3.0, "agent_seconds": 15.0,
-        "agent_started_at_ms": 1789157903000, "agent_exit_code": 0,
-        "verification": {"exit_code": 0, "seconds": 2.0},
-        "usage": {"input_tokens": 100, "cached_input_tokens": 60, "output_tokens": 8},
-        "completed_turns": 1, "invalid_event_lines": 0,
-        "event_counts": {"turn.completed": 1}, "error": null, "activity": [],
-        "inputs": {}, "before": {}, "after": {}, "changed_files": ["src/app.tsx"],
-        "app": "/saved/legacy-run/app", "cost_usd": null, "cost_note": "Subscription use.",
-        "human_review": "pending", "isolation": "Fresh HOME and CODEX_HOME"
-    }"#;
-    let loaded: Report = serde_json::from_str(legacy).unwrap();
-    assert!(loaded.task_config.is_none());
-    assert!(loaded.warnings.is_empty());
-    assert_eq!(loaded.state, agent_ui::report::State::Ready);
-    assert_eq!(loaded.usage.unwrap().cached_input_tokens, 60);
-    assert_eq!(loaded.changed_files, ["src/app.tsx"]);
 }
 
 #[test]

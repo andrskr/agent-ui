@@ -1,6 +1,7 @@
 use crate::{
     artifact::Artifact,
     codex,
+    comparison::Comparison,
     preview::Preview,
     process::Cancel,
     project::Project,
@@ -8,10 +9,12 @@ use crate::{
     runner::{self, Active},
     settings::Settings,
     storage::Store,
+    task_result::{Selection, TaskDetails, TaskView},
     toolchain::{self, Tools},
 };
 use anyhow::{Context, Result, ensure};
 use std::{
+    collections::BTreeMap,
     fs::File,
     io::Read,
     path::{Path, PathBuf},
@@ -23,7 +26,8 @@ pub struct Application {
     project: Project,
     store: Store,
     active: Option<Active>,
-    preview: Option<Preview>,
+    previews: BTreeMap<String, Preview>,
+    assessment: Option<crate::worker::Worker<crate::assessment::Assessment>>,
 }
 
 pub struct PreviewInfo<'a> {
@@ -45,7 +49,8 @@ impl Application {
             project,
             store,
             active: None,
-            preview: None,
+            previews: BTreeMap::new(),
+            assessment: None,
         })
     }
     pub fn project(&self) -> &Path {
@@ -57,32 +62,138 @@ impl Application {
     pub fn tasks(&self) -> Result<Vec<String>> {
         self.project.tasks()
     }
-    pub fn runs(&self) -> Result<Vec<Report>> {
-        self.store.list()
+    pub fn task_views(&self) -> Result<Vec<TaskView>> {
+        self.tasks()?
+            .iter()
+            .map(|task| self.store.task(task))
+            .collect()
     }
-    pub fn report(&self, id: &str) -> Result<Report> {
-        self.store.load(id)
+    pub fn task_view(&self, task: &str) -> Result<TaskView> {
+        self.store.task(task)
     }
-    pub fn has_active_run(&self) -> bool {
-        self.active.is_some()
+    pub fn report(&self, task: &str) -> Result<Report> {
+        self.store
+            .task(task)?
+            .run
+            .context("This task has no current run")
+    }
+    pub fn task_details(&self, task: &str) -> Result<TaskDetails> {
+        let source = self.project.task(task)?;
+        let input = crate::project::TaskInput::load(&source.path)?;
+        let inventory = crate::workspace::inventory(&source.path)?;
+        let changed_since_run = self
+            .store
+            .task(task)?
+            .run
+            .is_some_and(|r| !r.inputs.is_empty() && r.inputs != inventory);
+        Ok(TaskDetails {
+            prompt: input.prompt,
+            config: input.config,
+            files: inventory.into_keys().collect(),
+            changed_since_run,
+        })
+    }
+    pub fn selection(&self) -> Result<Selection> {
+        self.store.selection()
+    }
+    pub fn save_selection(&self, selection: &Selection) -> Result<()> {
+        self.store.save_selection(selection)
+    }
+    pub fn is_busy(&self) -> bool {
+        self.active.is_some() || self.assessment.is_some()
+    }
+    pub fn compare(&self, reference: &str, other: &str) -> Result<Comparison> {
+        Comparison::new(self.report(reference)?, self.report(other)?)
+    }
+    pub fn start_assessment(
+        &mut self,
+        reference: &str,
+        other: &str,
+        settings: Settings,
+    ) -> Result<()> {
+        ensure!(!self.is_busy(), "An operation is already active");
+        let comparison = self.compare(reference, other)?;
+        self.assessment = Some(crate::assessment::start(
+            self.store.clone(),
+            comparison,
+            settings,
+        )?);
+        Ok(())
+    }
+    pub fn join_assessment(&mut self) -> Result<crate::assessment::Assessment> {
+        self.assessment
+            .take()
+            .context("No active assessment")?
+            .join()
+    }
+    pub fn poll_assessment(&mut self) -> Result<Option<crate::assessment::Assessment>> {
+        if self.assessment.as_ref().is_some_and(|a| a.finished()) {
+            self.join_assessment().map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+    pub fn assessment_text(&self, comparison: &Comparison) -> Result<String> {
+        let Some(report) = self.store.assessment()? else {
+            return Ok(String::new());
+        };
+        if report.pair != comparison.pair {
+            return Ok(String::new());
+        }
+        let path = self.store.assessment_dir().join("assessment.md");
+        let note = if path.exists() {
+            std::fs::read_to_string(path)?
+        } else {
+            String::new()
+        };
+        let usage = report
+            .usage
+            .as_ref()
+            .map(|u| {
+                format!(
+                    "{} input · {} cached · {} output",
+                    u.input_tokens, u.cached_input_tokens, u.output_tokens
+                )
+            })
+            .unwrap_or_else(|| "Usage not reported".into());
+        Ok(format!(
+            "{} · {} · {} · {:.1}s\n{}\n{}\n{}\n{}",
+            report.state.label(),
+            report.model,
+            report.effort,
+            report.seconds,
+            usage,
+            report.visual_review,
+            report.error.unwrap_or_default(),
+            note
+        ))
     }
     pub fn run_path(&self, id: &str) -> Result<PathBuf> {
         Ok(self.store.files(id)?.root().to_owned())
     }
 
     pub fn start(&mut self, task: &str, settings: Settings) -> Result<String> {
-        ensure!(self.active.is_none(), "A run is already active");
+        ensure!(!self.is_busy(), "An operation is already active");
         settings.validate()?;
         let source = self.project.task(task)?;
-        let active = runner::start(self.store.clone(), source, settings)?;
+        let tools = Tools::discover(settings.codex.as_deref())?;
+        let lock = self.store.lock()?;
+        self.stop_preview(task);
+        let active = runner::start(self.store.clone(), source, settings, tools, lock)?;
         let id = active.id.clone();
         self.active = Some(active);
         Ok(id)
     }
     pub fn cancellation(&self) -> Option<Cancel> {
-        self.active.as_ref().map(Active::cancellation)
+        self.active
+            .as_ref()
+            .map(Active::cancellation)
+            .or_else(|| self.assessment.as_ref().map(|a| a.cancellation()))
     }
     pub fn cancel(&self) {
+        if let Some(assessment) = &self.assessment {
+            assessment.cancel();
+        }
         if let Some(active) = &self.active {
             active.cancel();
         }
@@ -98,53 +209,53 @@ impl Application {
         }
     }
 
-    pub fn preview(&self) -> Option<PreviewInfo<'_>> {
-        self.preview.as_ref().map(|preview| PreviewInfo {
-            id: preview.id(),
-            url: preview.url(),
-            ready: preview.is_ready(),
+    pub fn preview(&self, task: &str) -> Option<PreviewInfo<'_>> {
+        self.previews.get(task).map(|p| PreviewInfo {
+            id: p.id(),
+            url: p.url(),
+            ready: p.is_ready(),
         })
     }
-    pub fn start_preview(&mut self, id: &str) -> Result<()> {
-        if self.preview.as_ref().is_some_and(|p| p.id() == id) {
+    pub fn start_preview(&mut self, task: &str) -> Result<()> {
+        let id = self.report(task)?.id;
+        if self.previews.get(task).is_some_and(|p| p.id() == id) {
             return Ok(());
         }
-        let preview = Preview::start(&self.store, id, &toolchain::which("vp")?)?;
-        self.preview = Some(preview);
+        let preview = Preview::start(&self.store, &id, &toolchain::which("vp")?)?;
+        self.previews.insert(task.into(), preview);
         Ok(())
     }
-    pub fn poll_preview(&mut self) -> Result<bool> {
-        let result = self.preview.as_mut().map(Preview::poll).transpose();
-        match result {
-            Ok(ready) => Ok(ready.unwrap_or(false)),
-            Err(error) => {
-                self.preview = None;
-                Err(error)
+    pub fn poll_previews(&mut self) -> Vec<(String, Result<bool>)> {
+        let results: Vec<_> = self
+            .previews
+            .iter_mut()
+            .map(|(task, p)| (task.clone(), p.poll()))
+            .collect();
+        for (task, result) in &results {
+            if result.is_err() {
+                self.previews.remove(task);
             }
         }
+        results
     }
-    pub fn stop_preview(&mut self) {
-        self.preview = None;
+    pub fn stop_preview(&mut self, task: &str) {
+        self.previews.remove(task);
     }
-    pub fn open_preview(&self) -> Result<()> {
-        let preview = self.preview().context("No preview is running")?;
+    pub fn open_preview(&self, task: &str) -> Result<()> {
+        let preview = self
+            .preview(task)
+            .context("No preview is running for this task")?;
         ensure!(preview.ready, "Preview is still starting");
         open_url(preview.url)
     }
-    pub fn open_artifact(&self, id: &str, artifact: Artifact) -> Result<()> {
-        open_editor(&self.store.artifact(id, artifact)?)
+    pub fn open_artifact(&self, task: &str, artifact: Artifact) -> Result<()> {
+        open_editor(&self.store.artifact(&self.report(task)?.id, artifact)?)
     }
-    pub fn agent_note(&self, id: &str) -> Result<String> {
-        let path = self.store.files(id)?.agent_report();
+    pub fn agent_note(&self, task: &str) -> Result<String> {
+        let path = self.store.files(&self.report(task)?.id)?.agent_report();
         let mut bytes = Vec::new();
         File::open(path)?.take(4096).read_to_end(&mut bytes)?;
         Ok(String::from_utf8_lossy(&bytes).into_owned())
-    }
-    pub fn remove(&mut self, id: &str) -> Result<()> {
-        if self.preview.as_ref().is_some_and(|p| p.id() == id) {
-            self.stop_preview();
-        }
-        self.store.remove(id)
     }
     pub fn login(&self, codex: Option<&Path>) -> Result<()> {
         codex::login(&self.store, &Tools::discover(codex)?)

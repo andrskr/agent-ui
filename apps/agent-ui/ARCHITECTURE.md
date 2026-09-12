@@ -1,66 +1,54 @@
-# Architecture assessment
+# Architecture
 
-The app must run local experiments, preserve measured evidence, and let a person review the result.
-The CLI and terminal UI are two interfaces to the same application.
+The app runs task experiments and lets a person compare their code and evidence. CLI and TUI use the
+same application service. Each task has at most one current run. Comparison joins two different
+tasks. There is no run history, approval state, or promotion step.
 
-## Problems in the previous structure
+## Owners
 
-| Problem                                                      | Effect                                                                                               | Change                                                                         |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `Store` handled task sources and saved runs.                 | Source validation and output ownership were coupled.                                                 | `Project` owns task discovery. `Store` owns saved runs.                        |
-| Setup lived inside a large runner method.                    | Each task option added file and package rules to execution control.                                  | `PreparedWorkspace` owns copying, package setup, and baseline capture.         |
-| CLI and TUI owned separate parts of run and preview control. | A lifecycle change could affect only one interface.                                                  | Both use `Application`.                                                        |
-| `Report` parsed Codex JSON.                                  | Provider protocol changes affected the saved-data model.                                             | Codex decodes JSON into typed observations.                                    |
-| State and timing changed at scattered call sites.            | Early failures could lose setup time. Successful process exit could be confused with completed work. | `Journal` owns measurements and writes. `Report` checks lifecycle transitions. |
-| Preview readiness had separate blocking and polled paths.    | Startup and shutdown rules could differ by interface.                                                | One `Preview` owns the process and readiness state.                            |
-| Internal modules exposed execution helpers as public API.    | Callers could bypass the application owner.                                                          | Execution modules are private.                                                 |
+| Owner               | Responsibility                                                       |
+| ------------------- | -------------------------------------------------------------------- |
+| `Project`           | Find tasks and validate source inputs before replacement.            |
+| `TaskConfig`        | Parse TOML and transform package settings in memory.                 |
+| `Application`       | Coordinate runs, assessments, and previews for both interfaces.      |
+| `Store`             | Own the task index, run files, locks, replacement, and recovery.     |
+| `Index`             | Enforce current and removing slots in memory.                        |
+| `Runner`            | Coordinate setup, agent execution, and verification.                 |
+| `PreparedWorkspace` | Copy inputs and starter, install packages, and record source hashes. |
+| `Journal`           | Measure phases and save progress and command output.                 |
+| `Report`            | Apply task lifecycle and completion rules to typed observations.     |
+| `Comparison`        | Compute signed differences from two saved results.                   |
+| `Assessment`        | Run an explicit Codex comparison and record its separate evidence.   |
+| `Worker<T>`         | Own cancellation and join a background thread.                       |
+| `Preview`           | Own one server, port, lock, and readiness state.                     |
+| `Process`           | Own child groups and capture output.                                 |
+| `Codex`             | Own private session setup, command arguments, decoding, and traces.  |
+| TUI                 | Own selection, forms, search, scroll, and rendering.                 |
 
-## Dependency direction
+The TUI does not read evidence files or own child processes. Pure comparison and rendering do not
+start Codex. `toolchain.rs` resolves executables; it does not select tasks or start previews.
 
-```mermaid
-flowchart TD
-  CLI --> Application
-  TUI --> Application
-  Application --> Project
-  Application --> Store
-  Application --> Runner
-  Application --> Preview
-  Runner --> Workspace[PreparedWorkspace]
-  Runner --> Codex
-  Runner --> Journal
-  Workspace --> TaskConfig
-  Workspace --> Journal
-  Codex --> Observations[Typed observations]
-  Codex --> Journal
-  Journal --> Report
-  Journal --> Store
-  Journal --> Process
-  Codex --> Process
-  Preview --> Process
-```
+## Replacement
 
-`toolchain.rs` resolves host executables. It does not choose a run, own a report, or start a
-preview. Codex owns credentials and the isolated session. Private session files stay outside public
-evidence.
+1. Validate settings, task source, package settings, starter manifest, and executables.
+2. Take the storage execution lock. No other run or assessment can start.
+3. Stop this application's preview for the selected task.
+4. Take the old run's preview lock. A preview in another process blocks replacement.
+5. Save the task slot as `Removing(old-id)` before deleting files.
+6. Delete an assessment that uses the old run. Delete the old public and private run files.
+7. Remove the task slot. Create the new report and register `Current(new-id)`.
+8. Start the worker. It keeps the execution lock until all work ends.
 
-## Run ownership
+This order keeps old output when preflight fails. After step 5, failure leaves a cleanup record. No
+replacement starts until cleanup succeeds. Recovery retries removal. A failed or cancelled new run
+is the current result. There is no rollback.
 
-1. `Application` validates settings and obtains a task source from `Project`.
-2. `Runner` resolves executables, takes the run lock, creates the report, and owns the worker.
-3. `Journal` starts setup measurement.
-4. `PreparedWorkspace` copies inputs, validates the saved snapshot, and copies the starter.
-5. It applies `task.toml`, installs packages, formats setup files, and saves the baseline.
-6. Codex creates a private session and checks login.
-7. Codex executes the saved prompt. The process owner saves raw output. The decoder produces
-   observations for the report. The journal saves measured progress.
-8. The runner attempts trace capture and source inventory even when agent execution fails.
-9. Verification runs only after the agent process and completion evidence pass.
-10. The journal saves a terminal result. It preserves measurements on failure or cancellation.
+Writes use a temporary file, file sync, rename, and parent-directory sync. Recovery holds the same
+execution lock. It marks abandoned active runs as `Interrupted`. Unregistered run directories are
+incomplete starts or obsolete output. Recovery removes them when their preview lock is free. It does
+not import old history. A missing task index starts empty.
 
-The worker owns the storage lock until its work ends. Dropping its handle cancels and joins it. The
-process owner terminates the child group. The session owner removes private per-run state.
-
-## Lifecycle rules
+## Run lifecycle
 
 ```text
 Preparing -> Running -> Verifying -> Ready
@@ -68,50 +56,52 @@ Preparing -> Running -> Verifying -> Ready
      +----------+-----------+-----> Failed / Cancelled / Interrupted
 ```
 
-`Ready` needs a completed agent turn, no provider failure, valid event records, an agent exit code
-of zero, and verification with an exit code of zero. Cancellation takes precedence over a final
-successful process result. Recovery changes active reports to `Interrupted`. Recovery leaves
-completed results unchanged.
+Setup preserves the full input folder and loads that saved snapshot. It applies task packages only
+to the copied app. It saves package and lock files before agent execution. Setup changes do not
+count as agent edits. The journal preserves measurements on errors. The runner attempts trace
+capture and final source inventory even if the agent fails.
 
-The serialized report is a versioned data record, not an executable run. Loading an old report does
-not start processes or reconstruct an active worker. Report version 1 and existing field names
-remain supported. Optional task settings remain backward compatible.
+`Ready` needs a completed turn, valid events, no provider failure, agent exit code zero, and passed
+verification. Cancellation takes precedence over a successful process exit. Dropping a worker
+cancels and joins it. The process owner stops its child group. The session owner removes private
+session data after trace capture.
 
-## Task configuration
+## Comparison and assessment
 
-`TaskConfig` parses and transforms in-memory data. It does not read files, install packages, or
-start processes. `Project` loads source inputs. `PreparedWorkspace` loads the saved input snapshot
-again, so execution uses the same task content that the run preserves.
+`TaskPair` stores two task IDs for UI selection. `Comparison::Pair` binds two exact task/run IDs.
+Measurements use B minus A. Missing values remain missing. Input changes come from saved input
+hashes. Setup and final source changes come from saved inventories. The comparison includes both
+reports, so model, effort, versions, task settings, and verification remain available.
 
-Package versions and script permissions remain explicit in each task. Only the run copy changes.
-Setup files are saved before agent execution. Their changes are not counted as agent edits.
+The optional assessment takes the execution lock and rechecks both current run IDs before starting.
+It uses a fresh Codex session with a read-only sandbox. It treats task prompts, instructions, code,
+and logs as evidence. It has no browser review step. Its usage never enters either task report.
 
-## UI and review
+There is one assessment folder. Starting an assessment replaces it. Rerunning either member deletes
+it. A changed run ID makes it unavailable. Recovery deletes stale assessments and marks abandoned
+active assessments as `Interrupted`. Swapped comparisons do not reuse direction-specific text.
 
-The TUI owns selection, search, forms, scroll position, and display text. It calls the application
-service for effects. Pure rendering uses memory buffers in tests.
+## Preview and selection
 
-`Application` owns one preview. Both interfaces use the same start, poll, open, and stop operations.
-Polling does not open a browser. An interface requests that action after readiness. The preview owns
-its process and run lock. Removal stops an owned preview before deleting the selected run.
+`Application` stores previews by task ID. Each preview binds the exact current run ID. Starting or
+stopping A does not stop B. Polling checks readiness; the interface opens the browser only after
+readiness. Quitting stops all owned previews. A preview command in another process holds the same
+run lock and blocks replacement until it stops.
 
-## Verification boundaries
+The sidebar selection is a task ID. The comparison pair and whether comparison is open are saved.
+The selected side chooses Activity, Evidence, code, and preview actions. Overview displays both
+results. The picker includes tasks without output, but they cannot form a comparison yet.
 
-Automated tests stay in memory. They cover event decoding and reduction, report compatibility,
-source comparisons, task settings, lifecycle rules, and rendering behavior. They do not create
-files, start processes, install packages, or open browsers or editors.
+## Verification and limits
 
-File copying, package installation, credentials, process shutdown, and browser preview require
-separate manual checks. Use external run storage. Preserve the reports for those checks.
+Automated tests stay in memory. They check replacement state, pair identity, missing evidence,
+signed differences, event reduction, lifecycle rules, package settings, and rendering. They do not
+create files, start processes, install packages, or open browsers or editors.
 
-## Deliberate limits
+Manual checks use an external project and output folder. They check locks, deletion, recovery,
+package installation, real Codex use, TUI input, browser rendering, and process shutdown.
+Compilation and package tooling still write normal build output and caches.
 
-- One active worker remains sufficient. There is no job queue or async runtime.
-- The app targets local Codex. There is no generic provider or plugin system.
-- The UI still reloads saved reports. There is no event database or application message bus.
-- The report schema stays flat for compatibility. Runtime ownership is separate from serialization.
-- Configuration separation does not provide full host isolation.
-- Desktop launch actions and host file operations cannot be proved by memory-only tests.
-
-Extend the owner of a behavior when that behavior changes. Do not put new package rules in the CLI,
-JSON decoding in report rendering, or child-process ownership in the TUI.
+The app has one active operation per storage location. It has no job queue, event database, provider
+framework, or migration layer. Configuration separation does not provide full host isolation.
+Evidence can contain task text and paths. A Codex code assessment cannot approve visual quality.

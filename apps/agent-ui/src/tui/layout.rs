@@ -10,7 +10,7 @@ pub(super) fn regions(area: Rect) -> ([Rect; 4], [Rect; 2]) {
     .margin(1)
     .areas(area);
     let panels = Layout::horizontal([
-        Constraint::Length((area.width / 3).clamp(30, 44)),
+        Constraint::Length((area.width / 4).clamp(28, 38)),
         Constraint::Min(40),
     ])
     .spacing(1)
@@ -31,7 +31,7 @@ pub(super) fn new_button(area: Rect) -> Rect {
 pub(super) fn search_area(area: Rect) -> Rect {
     Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(3), 1)
 }
-pub(super) fn run_list_area(area: Rect) -> Rect {
+pub(super) fn task_list_area(area: Rect) -> Rect {
     Rect::new(
         area.x + 1,
         area.y + 3,
@@ -39,25 +39,30 @@ pub(super) fn run_list_area(area: Rect) -> Rect {
         area.height.saturating_sub(3),
     )
 }
-pub(super) fn detail_parts(area: Rect) -> [Rect; 3] {
-    let area = area.inner(Margin::new(2, 0));
-    let wide = area.width >= 84;
-    let top = if wide { 3 } else { 5 };
+pub(super) fn detail_parts(area: Rect) -> [Rect; 4] {
+    let area = area.inner(Margin::new(1, 0));
     [
-        Rect::new(area.x, area.y, 36.min(area.width), 1),
-        Rect::new(
-            if wide { area.right() - 44 } else { area.x },
-            area.y + if wide { 0 } else { 2 },
-            if wide { 44 } else { area.width },
-            1,
-        ),
+        Rect::new(area.x, area.y, area.width, 1),
+        Rect::new(area.x, area.y + 2, area.width, 1),
+        Rect::new(area.x, area.y + 4, area.width, 1),
         Rect::new(
             area.x,
-            area.y + top,
+            area.y + 6,
             area.width,
-            area.height.saturating_sub(top),
+            area.height.saturating_sub(6),
         ),
     ]
+}
+pub(super) fn compare_button(area: Rect) -> Rect {
+    Rect::new(area.right().saturating_sub(38), area.y + 1, 17, 1)
+}
+pub(super) fn picker_list(area: Rect) -> Rect {
+    Rect::new(
+        area.x + 4,
+        area.y + 5,
+        area.width.saturating_sub(8),
+        area.height.saturating_sub(8),
+    )
 }
 pub(super) fn action_areas(area: Rect) -> [Rect; 3] {
     Layout::horizontal([
@@ -80,5 +85,5 @@ pub(super) fn modal_submit(area: Rect) -> Rect {
     Rect::new(area.x + 4, area.y + 16, 24, 1)
 }
 pub(super) fn content_area(area: Rect) -> Rect {
-    detail_parts(regions(area).1[1])[2]
+    detail_parts(regions(area).1[1])[3]
 }

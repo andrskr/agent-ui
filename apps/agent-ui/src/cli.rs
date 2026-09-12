@@ -43,29 +43,32 @@ enum Action {
     },
     /// List available task IDs.
     Tasks,
-    /// Copy a task and starter, apply optional task.toml packages, run Codex, and save the report.
+    /// Replace the task's previous output with a fresh run. Old output is deleted before execution.
     Run { task: String },
-    /// List saved runs.
-    List,
-    /// Print the saved JSON report.
-    Show { run: String },
+    /// Compare the latest results of two tasks. No agent runs unless --assess is set.
+    Compare {
+        reference: String,
+        other: String,
+        /// Start a separate read-only Codex assessment. This uses subscription tokens.
+        #[arg(long, conflicts_with = "saved")]
+        assess: bool,
+        /// Read the saved assessment for this exact pair. Do not start Codex.
+        #[arg(long, conflicts_with = "assess")]
+        saved: bool,
+    },
+    /// Print the task status and its latest JSON report.
+    Show { task: String },
     /// Open run files in VS Code.
     Open {
-        run: String,
+        task: String,
         #[arg(value_enum, default_value = "code")]
         target: Artifact,
     },
     /// Start a dev server until Ctrl+C. Each preview gets a separate port.
     Preview {
-        run: String,
+        task: String,
         #[arg(long)]
         no_open: bool,
-    },
-    /// Remove one run and all its files.
-    Remove {
-        run: String,
-        #[arg(long)]
-        yes: bool,
     },
     /// Check local binaries and show storage paths.
     Doctor,
@@ -95,51 +98,82 @@ pub fn run() -> Result<()> {
         height: 36,
     }) {
         Action::Tasks => {
-            for task in runtime.tasks()? {
-                println!("{task}");
+            for task in runtime.task_views()? {
+                println!("{:<28} {}", task.id, task.status());
             }
         }
-        Action::List => {
-            for report in runtime.runs()? {
+        Action::Show { task } => println!(
+            "{}",
+            serde_json::to_string_pretty(&runtime.task_view(&task)?)?
+        ),
+        Action::Compare {
+            reference,
+            other,
+            assess,
+            saved,
+        } => {
+            if assess {
+                runtime.start_assessment(&reference, &other, cli.settings())?;
+                runtime
+                    .cancellation()
+                    .context("Assessment did not start")?
+                    .install_signal_handler()?;
+                let report = runtime.join_assessment()?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
                 println!(
-                    "{}  {:<12} {}",
-                    report.id,
-                    report.state.label(),
-                    report.task
+                    "{}",
+                    runtime.assessment_text(&runtime.compare(&reference, &other)?)?
                 );
+                ensure!(
+                    report.state == crate::report::State::Ready,
+                    "Assessment did not finish successfully"
+                );
+            } else {
+                let comparison = runtime.compare(&reference, &other)?;
+                if saved {
+                    let text = runtime.assessment_text(&comparison)?;
+                    println!(
+                        "{}",
+                        if text.is_empty() {
+                            "No saved assessment for these results."
+                        } else {
+                            &text
+                        }
+                    );
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&comparison)?);
+                }
             }
         }
-        Action::Show { run } => {
-            println!("{}", serde_json::to_string_pretty(&runtime.report(&run)?)?)
-        }
-        Action::Remove { run, yes } => {
-            ensure!(yes, "Pass --yes to remove run {run} and all its files");
-            runtime.remove(&run)?;
-            println!("Removed {run}");
-        }
-        Action::Open { run, target } => {
-            runtime.open_artifact(&run, target)?;
-        }
-        Action::Preview { run, no_open } => {
+        Action::Open { task, target } => runtime.open_artifact(&task, target)?,
+        Action::Preview { task, no_open } => {
             let stop = Cancel::default();
             stop.install_signal_handler()?;
-            runtime.start_preview(&run)?;
+            runtime.start_preview(&task)?;
             loop {
                 ensure!(!stop.is_cancelled(), "Preview cancelled during startup");
-                if runtime.poll_preview()? {
+                let ready = runtime
+                    .poll_previews()
+                    .into_iter()
+                    .find(|(id, _)| id == &task)
+                    .context("Preview stopped")?
+                    .1?;
+                if ready {
                     break;
                 }
                 thread::sleep(Duration::from_millis(100));
             }
             println!(
                 "{}\nPress Ctrl+C to stop the preview.",
-                runtime.preview().context("Preview stopped")?.url
+                runtime.preview(&task).context("Preview stopped")?.url
             );
             if !no_open {
-                runtime.open_preview()?;
+                runtime.open_preview(&task)?;
             }
             while !stop.is_cancelled() {
-                runtime.poll_preview()?;
+                for (_, result) in runtime.poll_previews() {
+                    result?;
+                }
                 thread::sleep(Duration::from_millis(300));
             }
         }

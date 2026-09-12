@@ -1,13 +1,15 @@
 use super::{
     details::content_lines,
-    history::{History, HistoryRow},
     layout::{action_areas, detail_parts, regions},
-    state::DetailTab,
+    state::{DetailTab, Side},
+    tasks::{TaskRow, Tasks},
     view::{PreviewInfo, Screen, draw_screen},
 };
 use crate::{
+    comparison::Comparison,
     report::{Check, Report, State, Usage},
     settings::{Effort, Settings},
+    task_result::{Selection, TaskPair, TaskView},
 };
 use ratatui::{
     Terminal,
@@ -44,18 +46,30 @@ fn report(id: &str, task: &str, at: u64) -> Report {
     run.changed_files = vec!["src/app.tsx".into(), "src/settings.tsx".into()];
     run
 }
-fn history() -> History {
-    let mut history = History::default();
-    let first = report("a", "workspace-settings", 1_789_160_000_000);
-    let mut second = report("b", "workspace-settings", 1_789_159_000_000);
-    second.state = State::Failed;
-    second.effort_requested = "medium".into();
-    history.replace(vec![second, first, report("c", "smoke", 1_789_000_000_000)]);
-    history
+fn tasks() -> Tasks {
+    let mut tasks = Tasks::default();
+    tasks.replace(vec![
+        TaskView {
+            id: "bare".into(),
+            run: Some(report("a", "bare", 1_789_160_000_000)),
+            cleanup_pending: false,
+        },
+        TaskView {
+            id: "guided".into(),
+            run: Some(report("b", "guided", 1_789_159_000_000)),
+            cleanup_pending: false,
+        },
+        TaskView {
+            id: "empty".into(),
+            run: None,
+            cleanup_pending: false,
+        },
+    ]);
+    tasks
 }
-fn screen(history: &History) -> Screen<'_> {
+fn screen<'a>(tasks: &'a Tasks, selection: &'a Selection) -> Screen<'a> {
     Screen {
-        history,
+        tasks,
         tab: DetailTab::Overview,
         scroll: None,
         searching: false,
@@ -63,6 +77,11 @@ fn screen(history: &History) -> Screen<'_> {
         note: "Added workspace fields and a save confirmation.",
         preview: None,
         active: false,
+        selection,
+        side: Side::Reference,
+        comparison: None,
+        assessment: "",
+        details: None,
     }
 }
 fn render(screen: &Screen<'_>, width: u16, height: u16) -> String {
@@ -79,49 +98,80 @@ fn render(screen: &Screen<'_>, width: u16, height: u16) -> String {
 }
 
 #[test]
-fn new_runs_and_updates_do_not_move_the_selected_run() {
-    let mut history = history();
-    history.select_id("b");
-    let mut changed = history.runs.clone();
-    changed.push(report("new", "smoke", 1_800_000_000_000));
-    history.replace(changed);
-    assert_eq!(history.current().unwrap().id, "b");
-    assert_eq!(history.runs[0].id, "new");
+fn replacing_a_run_keeps_task_selection_and_includes_tasks_without_runs() {
+    let mut tasks = tasks();
+    tasks.select_id("guided");
+    let mut changed = tasks.items.clone();
+    changed.iter_mut().find(|t| t.id == "guided").unwrap().run =
+        Some(report("replacement", "guided", 1_800_000_000_000));
+    tasks.replace(changed);
+    assert_eq!(tasks.current().unwrap().id, "guided");
+    assert_eq!(
+        tasks.current().unwrap().run.as_ref().unwrap().id,
+        "replacement"
+    );
+    assert_eq!(
+        tasks
+            .items
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect::<Vec<_>>(),
+        ["bare", "empty", "guided"]
+    );
 }
 #[test]
-fn search_filters_navigation_and_clears_a_stale_selection() {
-    let mut history = history();
-    history.set_query("WORKSPACE failed medium".into());
-    assert_eq!(history.current().unwrap().id, "b");
-    history.navigate(1);
-    assert_eq!(history.current().unwrap().id, "b");
-    history.set_query("no-such-task".into());
-    assert!(history.current().is_none());
-    assert!(history.window(20).is_empty());
-    history.set_query(String::new());
-    assert_eq!(history.current().unwrap().id, "a");
-    history.navigate(100);
-    assert_eq!(history.current().unwrap().id, "c");
+fn search_filters_tasks_and_handles_no_matches() {
+    let mut tasks = tasks();
+    tasks.set_query("EMPTY not run".into());
+    assert_eq!(tasks.current().unwrap().id, "empty");
+    tasks.navigate(1);
+    assert_eq!(tasks.current().unwrap().id, "empty");
+    tasks.set_query("no-such-task".into());
+    assert!(tasks.current().is_none());
+    assert!(tasks.window(20).is_empty());
+    tasks.set_query(String::new());
+    assert_eq!(tasks.current().unwrap().id, "bare");
+    tasks.navigate(100);
+    assert_eq!(tasks.current().unwrap().id, "guided");
 }
 #[test]
-fn a_small_history_window_keeps_the_selected_item_and_its_date() {
-    let mut history = history();
-    history.select_id("c");
-    let rows = history.window(4);
-    assert!(matches!(&rows[0], HistoryRow::Date(_)));
-    let visible: Vec<_> = rows
+fn small_task_window_keeps_all_three_lines_of_the_selected_task() {
+    let mut tasks = tasks();
+    tasks.select_id("guided");
+    let visible: Vec<_> = tasks
+        .window(4)
         .iter()
         .filter_map(|row| match row {
-            HistoryRow::Run { index, line } => Some((history.runs[*index].id.as_str(), *line)),
-            _ => None,
+            TaskRow::Task { index, line } => Some((tasks.items[*index].id.as_str(), *line)),
+            TaskRow::Gap => None,
         })
         .collect();
-    assert_eq!(visible, [("c", 0), ("c", 1), ("c", 2)]);
+    assert_eq!(visible, [("guided", 0), ("guided", 1), ("guided", 2)]);
+}
+#[test]
+fn task_without_output_shows_prompt_and_no_preview_actions() {
+    let mut tasks = tasks();
+    tasks.select_id("empty");
+    let selection = Selection::default();
+    let mut screen = screen(&tasks, &selection);
+    let details = crate::task_result::TaskDetails {
+        prompt: "Build workspace settings.".into(),
+        config: Default::default(),
+        files: vec!["task.md".into()],
+        changed_since_run: false,
+    };
+    screen.details = Some(&details);
+    let output = render(&screen, 100, 32);
+    assert!(output.contains("Build workspace settings."));
+    assert!(output.contains("Not run"));
+    assert!(!output.contains("e Open code"));
+    assert!(!output.contains("b Preview"));
 }
 #[test]
 fn overview_shows_measured_values_once_and_classifies_source_changes() {
-    let history = history();
-    let output = render(&screen(&history), 150, 44);
+    let tasks = tasks();
+    let selection = Selection::default();
+    let output = render(&screen(&tasks, &selection), 150, 44);
     for value in ["24,308", "14,848", "418", "17.3s", "3.5s", "2.1s"] {
         assert_eq!(output.matches(value).count(), 1, "{value}");
     }
@@ -132,8 +182,9 @@ fn overview_shows_measured_values_once_and_classifies_source_changes() {
 }
 #[test]
 fn narrow_overview_scrolls_to_the_note_while_actions_stay_visible() {
-    let history = history();
-    let mut screen = screen(&history);
+    let tasks = tasks();
+    let selection = Selection::default();
+    let mut screen = screen(&tasks, &selection);
     screen.scroll = Some(u16::MAX);
     let output = render(&screen, 76, 24);
     assert!(output.contains("a Open full note"));
@@ -143,14 +194,15 @@ fn narrow_overview_scrolls_to_the_note_while_actions_stay_visible() {
 }
 #[test]
 fn a_preview_for_another_run_does_not_look_ready_for_the_selected_run() {
-    let history = history();
-    let mut screen = screen(&history);
+    let tasks = tasks();
+    let selection = Selection::default();
+    let mut screen = screen(&tasks, &selection);
     screen.preview = Some(PreviewInfo {
         id: "b",
         ready: true,
     });
     let output = render(&screen, 150, 44);
-    assert!(output.contains("b Start preview"));
+    assert!(output.contains("b Preview"));
     assert!(!output.contains("b Open preview"));
     screen.preview = Some(PreviewInfo {
         id: "a",
@@ -165,12 +217,12 @@ fn a_preview_for_another_run_does_not_look_ready_for_the_selected_run() {
 fn action_targets_do_not_overlap_tabs_or_content_at_supported_sizes() {
     for (width, height) in [(76, 24), (100, 32), (150, 44)] {
         let parts = detail_parts(regions(Rect::new(0, 0, width, height)).1[1]);
-        let actions = action_areas(parts[1]);
+        let actions = action_areas(parts[2]);
         for rect in actions {
-            assert!(parts[1].contains((rect.x, rect.y).into()));
-            assert!(rect.right() <= parts[1].right());
+            assert!(parts[2].contains((rect.x, rect.y).into()));
+            assert!(rect.right() <= parts[2].right());
             assert!(!rect.intersects(parts[0]));
-            assert!(!rect.intersects(parts[2]));
+            assert!(!rect.intersects(parts[3]));
         }
         assert!(!actions[0].intersects(actions[1]));
         assert!(!actions[1].intersects(actions[2]));
@@ -192,25 +244,35 @@ fn long_errors_and_activity_are_included_in_the_scroll_extent() {
 }
 
 #[test]
-fn timestamp_style_does_not_hide_state_colours() {
-    let history = history();
-    let mut terminal = Terminal::new(TestBackend::new(150, 44)).unwrap();
-    terminal
-        .draw(|frame| draw_screen(frame, &screen(&history)))
-        .unwrap();
-    let row = terminal
-        .backend()
-        .buffer()
-        .content
-        .chunks(150)
-        .find(|row| {
-            row.iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>()
-                .contains("● Ready")
-        })
-        .unwrap();
-    let status = row.iter().position(|cell| cell.symbol() == "●").unwrap();
-    let clock = row.iter().position(|cell| cell.symbol() == ":").unwrap();
-    assert_ne!(row[status].fg, row[clock].fg);
+fn comparison_side_selects_the_correct_preview_and_keeps_values_distinct() {
+    let tasks = tasks();
+    let selection = Selection {
+        task: Some("bare".into()),
+        pair: Some(TaskPair::new("bare".into(), "guided".into()).unwrap()),
+        comparing: true,
+    };
+    let mut comparison = Comparison::new(
+        tasks.items[0].run.clone().unwrap(),
+        tasks.items[2].run.clone().unwrap(),
+    )
+    .unwrap();
+    comparison.other.usage.as_mut().unwrap().input_tokens = 30_000;
+    comparison = Comparison::new(comparison.reference, comparison.other).unwrap();
+    let mut screen = screen(&tasks, &selection);
+    screen.comparison = Some(&comparison);
+    screen.preview = Some(PreviewInfo {
+        id: "b",
+        ready: true,
+    });
+    let output = render(&screen, 150, 44);
+    assert!(output.contains("b Preview"));
+    assert!(!output.contains("b Open preview"));
+    assert_eq!(output.matches("24,308").count(), 1);
+    assert_eq!(output.matches("30,000").count(), 1);
+    screen.side = Side::Other;
+    assert!(render(&screen, 150, 44).contains("b Open preview"));
+    screen.tab = DetailTab::Evidence;
+    let output = render(&screen, 150, 44);
+    assert!(output.contains("\"id\": \"b\""));
+    assert!(!output.contains("\"id\": \"a\""));
 }

@@ -1,4 +1,7 @@
-use crate::report::Report;
+use crate::{
+    report::Report,
+    task_result::{Index, Selection, Slot, TaskView},
+};
 use anyhow::{Context, Result, ensure};
 use fs2::FileExt;
 use std::{
@@ -53,12 +56,13 @@ pub fn private_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 pub fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
-    let temp = path.with_extension("json.tmp");
+    let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
     let mut file = File::create(&temp)?;
     serde_json::to_writer_pretty(&mut file, value)?;
     file.write_all(b"\n")?;
     file.sync_all()?;
     fs::rename(temp, path)?;
+    File::open(path.parent().context("File has no parent")?)?.sync_all()?;
     Ok(())
 }
 impl Store {
@@ -99,19 +103,89 @@ impl Store {
     pub fn save(&self, report: &Report) -> Result<()> {
         write_json(&self.dir(&report.id)?.join("report.json"), report)
     }
-    pub fn list(&self) -> Result<Vec<Report>> {
-        let mut reports = vec![];
-        for entry in fs::read_dir(self.root.join("runs"))? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() && entry.path().join("report.json").exists() {
-                reports.push(
-                    self.load(&entry.file_name().to_string_lossy())
-                        .with_context(|| format!("Cannot read run {}", entry.path().display()))?,
-                );
-            }
+    fn index(&self) -> Result<Index> {
+        let path = self.root.join("current.json");
+        if !path.exists() {
+            return Ok(Index::default());
         }
-        reports.sort_by_key(|r| std::cmp::Reverse(r.created_at_ms));
-        Ok(reports)
+        Ok(serde_json::from_slice(&fs::read(path)?)?)
+    }
+    fn save_index(&self, index: &Index) -> Result<()> {
+        write_json(&self.root.join("current.json"), index)
+    }
+    pub fn task(&self, task: &str) -> Result<TaskView> {
+        valid_id(task)?;
+        let index = self.index()?;
+        let run = index.current(task).map(|id| self.load(id)).transpose()?;
+        if let Some(run) = &run {
+            ensure!(run.task == task, "Saved run belongs to another task");
+        }
+        Ok(TaskView {
+            id: task.into(),
+            run,
+            cleanup_pending: matches!(index.tasks.get(task), Some(Slot::Removing(_))),
+        })
+    }
+    pub fn selection(&self) -> Result<Selection> {
+        let path = self.root.join("selection.json");
+        if !path.exists() {
+            return Ok(Selection::default());
+        }
+        Ok(serde_json::from_slice(&fs::read(path)?)?)
+    }
+    pub fn save_selection(&self, selection: &Selection) -> Result<()> {
+        write_json(&self.root.join("selection.json"), selection)
+    }
+    pub fn assessment_dir(&self) -> PathBuf {
+        self.root.join("assessment")
+    }
+    pub fn assessment(&self) -> Result<Option<crate::assessment::Assessment>> {
+        let path = self.assessment_dir().join("report.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(serde_json::from_slice(&fs::read(path)?)?))
+    }
+    fn invalidate_assessment(&self, task: &str) -> Result<()> {
+        let dir = self.assessment_dir();
+        if dir.exists() && self.assessment()?.is_none_or(|a| a.pair.uses_task(task)) {
+            fs::remove_dir_all(dir)?;
+        }
+        Ok(())
+    }
+    /// The caller holds the execution lock until the new worker ends.
+    pub fn replace(&self, report: &Report) -> Result<()> {
+        self.clear_task(&report.task)?;
+        let mut index = self.index()?;
+        fs::create_dir(self.dir(&report.id)?)?;
+        self.save(report)?;
+        index.register(&report.task, report.id.clone())?;
+        self.save_index(&index)
+    }
+    fn clear_task(&self, task: &str) -> Result<()> {
+        let mut index = self.index()?;
+        let Some(id) = index.begin_removal(task) else {
+            return Ok(());
+        };
+        // Take the preview lock before changing state or removing any files.
+        let path = self.dir(&id)?;
+        let _preview = path.exists().then(|| self.preview_lock(&id)).transpose()?;
+        self.save_index(&index)?;
+        self.invalidate_assessment(task)?;
+        self.remove_files(&id)?;
+        index.finish_removal(task);
+        self.save_index(&index)
+    }
+    fn remove_files(&self, id: &str) -> Result<()> {
+        let path = self.dir(id)?;
+        if path.exists() {
+            fs::remove_dir_all(path)?;
+        }
+        let private = self.root.join("private").join(id);
+        if private.exists() {
+            fs::remove_dir_all(private)?;
+        }
+        Ok(())
     }
     fn try_run_lock(&self) -> Result<Option<File>> {
         let file = OpenOptions::new()
@@ -128,7 +202,7 @@ impl Store {
     }
     pub fn lock(&self) -> Result<File> {
         self.try_run_lock()?
-            .context("Another run is active. Wait for it to finish")
+            .context("Another operation is active. Wait for it to finish or cancel it")
     }
     pub fn artifact(&self, id: &str, artifact: crate::artifact::Artifact) -> Result<PathBuf> {
         self.load(id)?;
@@ -140,23 +214,61 @@ impl Store {
         let Some(_lock) = self.try_run_lock()? else {
             return Ok(());
         };
-        for mut report in self.list()? {
-            if report.state.active() {
-                report.interrupt();
-                self.save(&report)?;
+        if !self.root.join("current.json").exists() {
+            self.save_selection(&Selection::default())?;
+            self.save_index(&Index::default())?;
+        }
+        for (task, slot) in self.index()?.tasks {
+            match slot {
+                Slot::Removing(_) => {
+                    if let Err(error) = self.clear_task(&task) {
+                        eprintln!("Cleanup pending for {task}: {error:#}");
+                    }
+                }
+                Slot::Current(id) => {
+                    let mut report = self.load(&id)?;
+                    if report.state.active() {
+                        report.interrupt();
+                        self.save(&report)?;
+                    }
+                }
             }
         }
-        Ok(())
-    }
-    pub fn remove(&self, id: &str) -> Result<()> {
-        let _lock = self.lock()?;
-        let report = self.load(id)?;
-        ensure!(!report.state.active(), "Cannot remove an active run");
-        let _preview_lock = self.preview_lock(id)?;
-        fs::remove_dir_all(self.dir(id)?)?;
-        let private = self.root.join("private").join(id);
-        if private.exists() {
-            fs::remove_dir_all(private)?;
+        let index = self.index()?;
+        // Unregistered folders are incomplete starts or obsolete output. Do not import them.
+        for entry in fs::read_dir(self.root.join("runs"))? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let id = entry.file_name().to_string_lossy().into_owned();
+            if !index.keeps(&id) {
+                let result = (|| -> Result<()> {
+                    let _preview = self.preview_lock(&id)?;
+                    self.remove_files(&id)
+                })();
+                if let Err(error) = result {
+                    eprintln!("Cannot remove obsolete output {id}: {error:#}");
+                }
+            }
+        }
+        if let Some(mut assessment) = self.assessment()? {
+            if !assessment.pair.is_current(
+                &index
+                    .tasks
+                    .iter()
+                    .filter_map(|(task, slot)| match slot {
+                        Slot::Current(id) => Some((task.clone(), id.clone())),
+                        _ => None,
+                    })
+                    .collect(),
+            ) {
+                fs::remove_dir_all(self.assessment_dir())?;
+            } else if assessment.state.active() {
+                assessment.state = crate::report::State::Interrupted;
+                assessment.error = Some("Comparison stopped before completion".into());
+                write_json(&self.assessment_dir().join("report.json"), &assessment)?;
+            }
         }
         Ok(())
     }

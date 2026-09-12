@@ -24,3 +24,14 @@ pub enum AgentUpdate {
     },
     Unknown,
 }
+
+impl Usage {
+    pub fn add(&mut self, sample: &Self) {
+        self.input_tokens += sample.input_tokens;
+        self.cached_input_tokens += sample.cached_input_tokens;
+        self.output_tokens += sample.output_tokens;
+        if let Some(n) = sample.reasoning_output_tokens {
+            *self.reasoning_output_tokens.get_or_insert(0) += n;
+        }
+    }
+}

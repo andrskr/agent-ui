@@ -96,7 +96,6 @@ pub struct Report {
     pub app: PathBuf,
     pub cost_usd: Option<f64>,
     pub cost_note: String,
-    pub human_review: String,
     pub isolation: String,
 }
 impl Report {
@@ -200,7 +199,6 @@ impl Report {
             app,
             cost_usd: None,
             cost_note: "Subscription use. Codex does not report a per-run currency charge.".into(),
-            human_review: "pending".into(),
             isolation: concat!(
                 "Fresh HOME and CODEX_HOME; explicit environment; workspace-write sandbox. ",
                 "This does not isolate host reads or shared account limits. ",
@@ -258,13 +256,7 @@ impl Report {
             AgentUpdate::Turn(sample) => {
                 self.completed_turns += 1;
                 if let Some(sample) = sample {
-                    let usage = self.usage.get_or_insert_default();
-                    usage.input_tokens += sample.input_tokens;
-                    usage.cached_input_tokens += sample.cached_input_tokens;
-                    usage.output_tokens += sample.output_tokens;
-                    if let Some(n) = sample.reasoning_output_tokens {
-                        *usage.reasoning_output_tokens.get_or_insert(0) += n;
-                    }
+                    self.usage.get_or_insert_default().add(&sample);
                 }
                 self.record("Codex completed a turn");
             }

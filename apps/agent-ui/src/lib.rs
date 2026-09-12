@@ -1,7 +1,9 @@
 pub mod application;
 pub mod artifact;
+pub mod assessment;
 pub mod cli;
 pub mod codex;
+pub mod comparison;
 pub mod evidence;
 mod journal;
 mod preview;
@@ -12,6 +14,8 @@ mod runner;
 pub mod settings;
 pub mod storage;
 pub mod task;
+pub mod task_result;
 mod toolchain;
 mod tui;
+mod worker;
 mod workspace;

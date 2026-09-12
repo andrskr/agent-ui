@@ -21,7 +21,12 @@ pub(crate) fn execute(
     workspace: &PreparedWorkspace,
     journal: &mut Journal,
 ) -> Result<()> {
-    let args = exec_args(settings, &workspace.app, &journal.files.agent_report())?;
+    let args = exec_args(
+        settings,
+        &workspace.app,
+        &journal.files.agent_report(),
+        "workspace-write",
+    )?;
     let evidence = journal.files.evidence();
     write_json(
         &evidence.join("command.json"),
@@ -226,6 +231,7 @@ fn exec_args(
     settings: &crate::settings::Settings,
     app: &Path,
     agent_report: &Path,
+    sandbox: &str,
 ) -> Result<Vec<String>> {
     Ok(vec![
         "-a".into(),
@@ -237,7 +243,7 @@ fn exec_args(
         "--model".into(),
         settings.model.clone(),
         "--sandbox".into(),
-        "workspace-write".into(),
+        sandbox.into(),
         "-c".into(),
         format!(
             "model_reasoning_effort={}",
@@ -249,4 +255,46 @@ fn exec_args(
         agent_report.display().to_string(),
         "-".into(),
     ])
+}
+
+pub(crate) fn review_args(
+    settings: &crate::settings::Settings,
+    cwd: &Path,
+    report: &Path,
+) -> Result<Vec<String>> {
+    let mut args = exec_args(settings, cwd, report, "read-only")?;
+    args.insert(args.len() - 1, "--skip-git-repo-check".into());
+    Ok(args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn assessment_command_is_read_only_and_does_not_require_a_git_repository() {
+        let settings = crate::settings::Settings {
+            model: "test".into(),
+            effort: crate::settings::Effort::Low,
+            timeout: 10,
+            codex: None,
+        };
+        let args = review_args(
+            &settings,
+            Path::new("/assessment"),
+            Path::new("/assessment/note.md"),
+        )
+        .unwrap();
+        assert!(args.windows(2).any(|a| a == ["--sandbox", "read-only"]));
+        assert!(
+            args.windows(2)
+                .any(|a| a == ["--output-last-message", "/assessment/note.md"])
+        );
+        assert!(args.windows(2).any(|a| a == ["--cd", "/assessment"]));
+        assert!(args.iter().any(|a| a == "--skip-git-repo-check"));
+        assert!(
+            !args
+                .iter()
+                .any(|a| a == "workspace-write" || a.contains("dangerously"))
+        );
+    }
 }

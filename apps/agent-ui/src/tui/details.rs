@@ -259,3 +259,253 @@ fn section(lines: &mut Vec<Line<'static>>, width: u16) {
     lines.push(Line::from("─".repeat(width as usize)).fg(BORDER));
     lines.push(Line::default());
 }
+
+use crate::{
+    comparison::{ChangeKind, Comparison, FileChange},
+    task_result::{TaskDetails, TaskView},
+};
+pub(super) struct Content<'a> {
+    pub task: Option<&'a TaskView>,
+    pub run: Option<&'a Report>,
+    pub comparison: Option<&'a Comparison>,
+    pub comparing: bool,
+    pub tab: DetailTab,
+    pub details: Option<&'a TaskDetails>,
+    pub note: &'a str,
+    pub assessment: &'a str,
+}
+pub(super) fn screen_lines(content: &Content<'_>, width: u16) -> Vec<Line<'static>> {
+    if content.tab != DetailTab::Overview {
+        return content
+            .run
+            .map(|run| content_lines(run, content.tab, content.note, width))
+            .unwrap_or_else(|| vec![Line::from("No current run for this task.").fg(MUTED)]);
+    }
+    if content.comparing {
+        return content
+            .comparison
+            .map(|c| comparison_lines(c, content.assessment, width))
+            .unwrap_or_else(|| {
+                vec![
+                    Line::from("Both tasks need a current run. Press Esc to return to the task.")
+                        .fg(MUTED),
+                ]
+            });
+    }
+    let mut lines = Vec::new();
+    if content.task.is_some_and(|t| t.cleanup_pending) {
+        lines.push(
+            Line::from("Previous output cleanup is blocked. Fix the reported error and run again.")
+                .fg(RED),
+        );
+    }
+    if let Some(details) = content.details
+        && details.changed_since_run
+    {
+        lines.push(
+            Line::from(
+                "Task inputs changed since this run. The report describes the saved inputs.",
+            )
+            .fg(GOLD),
+        );
+        lines.push(Line::default());
+    }
+    if let Some(run) = content.run {
+        lines.push(
+            Line::from(format!(
+                "{} · {}",
+                run.model_requested, run.effort_requested
+            ))
+            .fg(MUTED),
+        );
+        lines.push(Line::default());
+        lines.extend(overview_lines(run, content.note, width));
+    } else if let Some(details) = content.details {
+        lines.push(Line::from("n Run this task").fg(ACCENT));
+        lines.push(Line::default());
+        lines.push(Line::from("Prompt").bold());
+        lines.extend(
+            safe_text(&details.prompt)
+                .lines()
+                .map(|l| Line::from(l.to_owned())),
+        );
+        section(&mut lines, width);
+        lines.push(Line::from("Task inputs").bold());
+        lines.extend(details.files.iter().map(|p| Line::from(format!("  {p}"))));
+        if details.config.has_packages() {
+            section(&mut lines, width);
+            lines.push(Line::from("Task package settings").bold());
+            lines.extend(
+                serde_json::to_string_pretty(&details.config)
+                    .unwrap_or_default()
+                    .lines()
+                    .map(|l| Line::from(l.to_owned())),
+            );
+        }
+    } else {
+        lines.push(Line::from("No task inputs are available. Check the task folder.").fg(MUTED));
+    }
+    lines
+}
+fn change_lines(
+    lines: &mut Vec<Line<'static>>,
+    title: &str,
+    changes: &Option<Vec<FileChange>>,
+    width: u16,
+) {
+    section(lines, width);
+    lines.push(Line::from(title.to_owned()).bold());
+    match changes {
+        None => lines.push(Line::from("Snapshot not available for both runs.").fg(MUTED)),
+        Some(changes) if changes.is_empty() => lines.push(Line::from("No differences.").fg(MUTED)),
+        Some(changes) => {
+            for change in changes {
+                let (label, color) = match change.kind {
+                    ChangeKind::Added => ("A", GREEN),
+                    ChangeKind::Removed => ("D", RED),
+                    ChangeKind::Modified => ("M", ACCENT),
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{label}  "), Style::default().fg(color)),
+                    Span::raw(safe_text(&change.path)),
+                ]));
+            }
+        }
+    }
+}
+fn comparison_lines(c: &Comparison, assessment: &str, width: u16) -> Vec<Line<'static>> {
+    let a = &c.reference;
+    let b = &c.other;
+    let m = &c.measurements;
+    let mut lines = vec![Line::from("Measured results").bold(), Line::default()];
+    let mut rows = Vec::new();
+    for (label, times) in [
+        ("Setup", &m.setup_seconds),
+        ("Agent", &m.agent_seconds),
+        ("Verify time", &m.verification_seconds),
+    ] {
+        rows.push((
+            label,
+            duration(times.reference),
+            duration(times.other),
+            times
+                .difference
+                .map(|d| format!("{d:+.1}s"))
+                .unwrap_or_else(|| "—".into()),
+        ));
+    }
+    for (label, tokens) in [
+        ("Input", &m.input_tokens),
+        ("Cached", &m.cached_input_tokens),
+        ("Output", &m.output_tokens),
+    ] {
+        rows.push((
+            label,
+            number(tokens.reference),
+            number(tokens.other),
+            tokens
+                .difference
+                .map(|d| format!("{d:+}"))
+                .unwrap_or_else(|| "—".into()),
+        ));
+    }
+    if width >= 66 {
+        let col = usize::from((width - 14) / 3);
+        lines.push(
+            Line::from(format!(
+                "{:<14}{:<col$}{:<col$}B − A",
+                "", "A · Reference", "B"
+            ))
+            .fg(ACCENT),
+        );
+        for (label, a, b, difference) in rows {
+            lines.push(Line::from(format!(
+                "{label:<14}{a:<col$}{b:<col$}{difference}"
+            )));
+        }
+    } else {
+        lines.push(Line::from("A → B  (difference)").fg(ACCENT));
+        for (label, a, b, difference) in rows {
+            lines.push(Line::from(format!("{label}: {a} → {b}  ({difference})")));
+        }
+    }
+    lines.push(Line::default());
+    lines.push(
+        Line::from("Cached tokens are part of input. Lower usage does not prove better UI.")
+            .fg(MUTED),
+    );
+    section(&mut lines, width);
+    lines.push(Line::from("Verification and settings").bold());
+    for (label, run) in [("A", a), ("B", b)] {
+        lines.push(Line::from(format!(
+            "{label}  {} · {}",
+            run.state.label(),
+            match run.verification.as_ref() {
+                Some(check) if check.exit_code == Some(0) => "Verify passed",
+                Some(_) => "Verify failed",
+                None => "Verify not complete",
+            }
+        )));
+        if let Some(error) = &run.error {
+            lines.push(Line::from(safe_text(error)).fg(RED));
+        }
+    }
+    for (name, left, right) in [
+        (
+            "Model",
+            Some(a.model_requested.as_str()),
+            Some(b.model_requested.as_str()),
+        ),
+        (
+            "Effort",
+            Some(a.effort_requested.as_str()),
+            Some(b.effort_requested.as_str()),
+        ),
+        (
+            "Codex",
+            a.codex_version.as_deref(),
+            b.codex_version.as_deref(),
+        ),
+        ("Node", a.node_version.as_deref(), b.node_version.as_deref()),
+        ("Vite+", a.vp_version.as_deref(), b.vp_version.as_deref()),
+    ] {
+        let short = |value: Option<&str>| {
+            value
+                .and_then(|v| v.lines().next())
+                .unwrap_or("Not reported")
+                .to_owned()
+        };
+        let value = if left == right {
+            format!("{name}: {} · both", short(left))
+        } else {
+            format!("{name}: A {} → B {}", short(left), short(right))
+        };
+        lines.push(Line::from(value).fg(MUTED));
+    }
+    change_lines(&mut lines, "Saved task inputs", &c.input_changes, width);
+    change_lines(
+        &mut lines,
+        "Setup files · includes manifests and lockfiles",
+        &c.setup_changes,
+        width,
+    );
+    change_lines(
+        &mut lines,
+        "Generated source files",
+        &c.source_changes,
+        width,
+    );
+    section(&mut lines, width);
+    lines.push(Line::from("Codex assessment · separate time and usage").bold());
+    if assessment.is_empty() {
+        lines.push(Line::from("m Ask Codex to inspect saved code and evidence.").fg(ACCENT));
+        lines.push(Line::from("Visual review stays in the browser.").fg(MUTED));
+    } else {
+        lines.extend(
+            safe_text(assessment)
+                .lines()
+                .map(|l| Line::from(l.to_owned())),
+        );
+    }
+    lines
+}

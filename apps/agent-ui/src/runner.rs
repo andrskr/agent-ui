@@ -9,53 +9,22 @@ use crate::{
     toolchain::Tools,
     workspace::{PreparedWorkspace, inventory},
 };
-use anyhow::{Context, Result};
-use std::{
-    fs,
-    thread::{self, JoinHandle},
-};
+use anyhow::Result;
+use std::{fs::File, thread};
 
-pub struct Active {
-    pub id: String,
-    cancel: Cancel,
-    worker: Option<JoinHandle<Result<Report>>>,
-}
-impl Active {
-    pub fn finished(&self) -> bool {
-        self.worker.as_ref().is_none_or(JoinHandle::is_finished)
-    }
-    pub fn cancellation(&self) -> Cancel {
-        self.cancel.clone()
-    }
-    pub fn cancel(&self) {
-        self.cancel.cancel();
-    }
-    pub fn join(mut self) -> Result<Report> {
-        self.worker
-            .take()
-            .context("Run was already joined")?
-            .join()
-            .map_err(|_| anyhow::anyhow!("Run worker panicked"))?
-    }
-}
-impl Drop for Active {
-    fn drop(&mut self) {
-        self.cancel();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
-}
-pub fn start(store: Store, source: TaskSource, settings: Settings) -> Result<Active> {
-    settings.validate()?;
-    let tools = Tools::discover(settings.codex.as_deref())?;
-    let lock = store.lock()?;
+pub type Active = crate::worker::Worker<Report>;
+pub fn start(
+    store: Store,
+    source: TaskSource,
+    settings: Settings,
+    tools: Tools,
+    lock: File,
+) -> Result<Active> {
     let id = format!("{}-{}", now(), &uuid::Uuid::new_v4().to_string()[..8]);
     let files = store.files(&id)?;
-    fs::create_dir(files.root())?;
     let mut report = Report::new(id.clone(), source.id.clone(), files.app(), &settings);
     report.record("Run created");
-    store.save(&report)?;
+    store.replace(&report)?;
     let cancel = Cancel::default();
     let worker_cancel = cancel.clone();
     let worker = thread::spawn(move || {

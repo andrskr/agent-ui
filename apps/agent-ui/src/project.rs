@@ -54,7 +54,17 @@ impl Project {
             fs::symlink_metadata(&path)?.is_dir(),
             "Task folder must not be a link"
         );
-        TaskInput::load(&path)?;
+        let input = TaskInput::load(&path)?;
+        validate_files(&path)?;
+        let starter = self.root.join("experiments/starter");
+        let manifest = serde_json::from_slice(&fs::read(starter.join("package.json"))?)?;
+        input.config.apply(&manifest)?;
+        if !input.config.allow_builds.is_empty() {
+            input
+                .config
+                .apply_workspace(&fs::read_to_string(starter.join("pnpm-workspace.yaml"))?)?;
+        }
+
         Ok(TaskSource {
             id: id.into(),
             path,
@@ -90,4 +100,20 @@ impl TaskInput {
         ensure!(!prompt.trim().is_empty(), "Task prompt is empty");
         Ok(Self { prompt, config })
     }
+}
+
+fn validate_files(root: &Path) -> Result<()> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        ensure!(
+            kind.is_file() || kind.is_dir(),
+            "Task inputs must be regular files or folders: {}",
+            entry.path().display()
+        );
+        if kind.is_dir() {
+            validate_files(&entry.path())?;
+        }
+    }
+    Ok(())
 }

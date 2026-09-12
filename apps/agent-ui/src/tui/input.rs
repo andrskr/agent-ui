@@ -1,49 +1,62 @@
-use super::history::HistoryRow;
 use super::{
     layout::*,
     state::{App, DetailTab, FormField, Modal, ReviewAction},
+    tasks::TaskRow,
 };
 use crate::artifact::Artifact;
 use anyhow::Result;
 use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
 use ratatui::layout::{Position, Rect};
-
 impl App {
     pub(super) fn key(&mut self, key: KeyEvent, area: Rect) -> Result<bool> {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
         }
         let content = content_area(area);
+        if self.modal == Modal::Picker {
+            match key.code {
+                KeyCode::Esc => self.modal = Modal::None,
+                KeyCode::Enter => self.confirm_comparison()?,
+                KeyCode::Up => self.picker.navigate(-1),
+                KeyCode::Down => self.picker.navigate(1),
+                KeyCode::Backspace => {
+                    let mut query = self.picker.query.clone();
+                    query.pop();
+                    self.picker.set_query(query);
+                }
+                KeyCode::Char(c) => {
+                    let mut query = self.picker.query.clone();
+                    query.push(c);
+                    self.picker.set_query(query);
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
         if self.searching {
+            let mut query = self.tasks.query.clone();
             match key.code {
                 KeyCode::Esc => {
                     self.searching = false;
-                    self.history.set_query(String::new());
+                    query.clear();
                 }
                 KeyCode::Enter => self.searching = false,
                 KeyCode::Backspace => {
-                    let mut query = self.history.query.clone();
                     query.pop();
-                    self.history.set_query(query);
                 }
-                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    let mut query = self.history.query.clone();
-                    query.push(c);
-                    self.history.set_query(query);
-                }
-                KeyCode::Down => self.history.navigate(1),
-                KeyCode::Up => self.history.navigate(-1),
+                KeyCode::Char(c) => query.push(c),
+                KeyCode::Up => self.tasks.navigate(-1),
+                KeyCode::Down => self.tasks.navigate(1),
                 _ => {}
             }
-            self.scroll = None;
-            self.load_note();
+            self.tasks.set_query(query);
+            self.selected()?;
             return Ok(false);
         }
         match self.modal {
-            Modal::New => match key.code {
+            Modal::Run => match key.code {
                 KeyCode::Esc => self.modal = Modal::None,
-                KeyCode::Tab => self.field = self.field.step(1),
-                KeyCode::BackTab => self.field = self.field.step(-1),
+                KeyCode::Tab | KeyCode::BackTab => self.field = self.field.step(),
                 KeyCode::Enter => self.start()?,
                 KeyCode::Up | KeyCode::Left => self.adjust(-1),
                 KeyCode::Down | KeyCode::Right => self.adjust(1),
@@ -58,18 +71,6 @@ impl App {
                 }
                 _ => {}
             },
-            Modal::Delete => match key.code {
-                KeyCode::Esc => self.modal = Modal::None,
-                KeyCode::Char('y') => {
-                    if let Some(id) = self.current().map(|r| r.id.clone()) {
-                        self.runtime.remove(&id)?;
-                        self.refresh()?;
-                        self.notice = format!("Removed run {id} and its files.");
-                    }
-                    self.modal = Modal::None;
-                }
-                _ => {}
-            },
             Modal::Help => {
                 if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
                     self.modal = Modal::None;
@@ -77,8 +78,8 @@ impl App {
             }
             Modal::None => match key.code {
                 KeyCode::Char('q') => return Ok(true),
-                KeyCode::Down | KeyCode::Char('j') => self.navigate(1),
-                KeyCode::Up | KeyCode::Char('k') => self.navigate(-1),
+                KeyCode::Down | KeyCode::Char('j') => self.navigate(1)?,
+                KeyCode::Up | KeyCode::Char('k') => self.navigate(-1)?,
                 KeyCode::Tab | KeyCode::Right => {
                     self.tab = self.tab.step(1);
                     self.scroll = None;
@@ -95,168 +96,139 @@ impl App {
                 KeyCode::PageUp => self.scroll_page(-10, content.height, content.width),
                 KeyCode::Home => self.scroll = Some(0),
                 KeyCode::End => {
-                    self.scroll = if self.tab == DetailTab::Activity {
-                        None
-                    } else {
-                        Some(self.last_scroll_row(content.height, content.width))
-                    };
+                    self.scroll = Some(self.last_scroll_row(content.height, content.width))
                 }
                 KeyCode::Char('/') => self.searching = true,
                 KeyCode::Esc => {
-                    self.history.set_query(String::new());
-                    self.load_note();
+                    self.tasks.set_query(String::new());
+                    self.leave_comparison()?;
                 }
                 KeyCode::Char('n') => self.new_run()?,
-                KeyCode::Char('c') => {
-                    if self.runtime.has_active_run() {
-                        self.runtime.cancel();
-                        self.notice = "Stopping the active run...".into();
-                    }
+                KeyCode::Char('c') => self.choose_comparison()?,
+                KeyCode::Char('s') => self.swap()?,
+                KeyCode::Char('v') if self.selection.comparing => {
+                    self.side = self.side.toggle();
+                    self.scroll = None;
+                    self.load_context()?;
                 }
-                KeyCode::Char('d') => {
-                    if self.current().is_some_and(|r| !r.state.active()) {
-                        self.modal = Modal::Delete;
-                    }
+                KeyCode::Char('m') => self.assess()?,
+                KeyCode::Char('C') => {
+                    self.runtime.cancel();
+                    self.notice = "Stopping the active operation...".into();
                 }
                 KeyCode::Char('?') => self.modal = Modal::Help,
-                KeyCode::Char('x') => {
-                    self.runtime.stop_preview();
-
-                    self.notice = "Preview stopped.".into();
-                }
+                KeyCode::Char('x') => self.stop_preview(),
                 KeyCode::Char('b') => self.review(ReviewAction::Preview)?,
                 KeyCode::Char('e') => self.review(ReviewAction::Open(Artifact::Code))?,
                 KeyCode::Char('r') => self.review(ReviewAction::Open(Artifact::Report))?,
-                KeyCode::Char('f') => self.review(ReviewAction::Open(Artifact::Evidence))?,
                 KeyCode::Char('a') => self.review(ReviewAction::Open(Artifact::Agent))?,
+                KeyCode::Char('f') => self.review(ReviewAction::Open(Artifact::Evidence))?,
                 _ => {}
             },
+            Modal::Picker => {}
         }
         Ok(false)
     }
     fn adjust(&mut self, delta: isize) {
-        if self.field == FormField::Task && !self.tasks.is_empty() {
-            self.task = (self.task as isize + delta).rem_euclid(self.tasks.len() as isize) as usize;
-        }
         if self.field == FormField::Effort {
             self.settings.effort = self.settings.effort.step(delta);
         }
     }
     pub(super) fn mouse(&mut self, mouse: event::MouseEvent, area: Rect) -> Result<()> {
-        if area.width < 76 || area.height < 24 {
-            return Ok(());
-        }
         let position = Position::new(mouse.column, mouse.row);
-        let (_, panels) = regions(area);
-        if self.modal == Modal::None
-            && matches!(
-                mouse.kind,
-                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-            )
-        {
-            let delta: i32 = if mouse.kind == MouseEventKind::ScrollUp {
-                -3
-            } else {
-                3
-            };
-            if panels[0].contains(position) {
-                self.navigate(delta.signum() as isize);
-            } else if panels[1].contains(position) {
-                let content = content_area(area);
-                self.scroll_page(delta, content.height, content.width);
-            }
-            return Ok(());
-        }
-        if mouse.kind != MouseEventKind::Down(event::MouseButton::Left) {
-            return Ok(());
-        }
-        if self.modal == Modal::New {
-            let area = modal_rect(area);
-            if modal_submit(area).contains(position) {
-                self.start()?;
-            } else {
-                for i in 0..3 {
-                    let rect = modal_field(area, i);
-                    if rect.contains(position) {
-                        self.field = FormField::ALL[i];
-                        if i != 1 && position.x >= rect.right() - 4 {
-                            self.adjust(if position.x >= rect.right() - 2 {
-                                1
-                            } else {
-                                -1
-                            });
-                        }
+        let panels = regions(area).1;
+        let content = content_area(area);
+        match mouse.kind {
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+                let delta = if mouse.kind == MouseEventKind::ScrollDown {
+                    1
+                } else {
+                    -1
+                };
+                if self.modal == Modal::Picker {
+                    self.picker.navigate(delta);
+                } else if self.modal == Modal::None {
+                    if panels[0].contains(position) {
+                        self.navigate(delta)?;
+                    } else {
+                        self.scroll_page(delta as i32 * 3, content.height, content.width);
                     }
                 }
+                return Ok(());
+            }
+            MouseEventKind::Down(event::MouseButton::Left) => {}
+            _ => return Ok(()),
+        }
+        if self.modal == Modal::Run {
+            let rect = modal_rect(area);
+            if modal_submit(rect).contains(position) {
+                self.start()?;
+            }
+            for i in 0..2 {
+                let field = modal_field(rect, i);
+                if field.contains(position) {
+                    self.field = if i == 0 {
+                        FormField::Model
+                    } else {
+                        FormField::Effort
+                    };
+                    if i == 1 {
+                        self.adjust(if position.x >= field.right() - 2 {
+                            1
+                        } else {
+                            -1
+                        });
+                    }
+                }
+            }
+        } else if self.modal == Modal::Picker {
+            let rect = picker_list(modal_rect(area));
+            if rect.contains(position)
+                && let Some(TaskRow::Task { index, .. }) = self
+                    .picker
+                    .window(rect.height)
+                    .get((position.y - rect.y) as usize)
+            {
+                self.picker.select(*index);
+                self.confirm_comparison()?;
             }
         } else if self.modal == Modal::None {
+            let parts = detail_parts(panels[1]);
             if new_button(area).contains(position) {
-                self.searching = false;
                 self.new_run()?;
+            } else if compare_button(area).contains(position) {
+                self.choose_comparison()?;
             } else if search_area(panels[0]).contains(position) {
                 self.searching = true;
-            } else if run_list_area(panels[0]).contains(position) {
-                let inner = run_list_area(panels[0]);
-                if let Some(HistoryRow::Run { index, .. }) = self
-                    .history
-                    .window(inner.height)
-                    .get((position.y - inner.y) as usize)
+            } else if task_list_area(panels[0]).contains(position) {
+                let rect = task_list_area(panels[0]);
+                if let Some(TaskRow::Task { index, .. }) = self
+                    .tasks
+                    .window(rect.height)
+                    .get((position.y - rect.y) as usize)
                 {
-                    self.history.select(*index);
-                    self.scroll = None;
-                    self.load_note();
+                    self.tasks.select(*index);
+                    self.selected()?;
                 }
-            } else if self.current().is_some() {
-                let parts = detail_parts(panels[1]);
-                if parts[0].contains(position) {
-                    self.tab = DetailTab::ALL[((position.x - parts[0].x) / 12).min(2) as usize];
-                    self.scroll = None;
-                } else if parts[1].contains(position) {
-                    let actions = action_areas(parts[1]);
-                    if actions[0].contains(position) {
-                        self.review(ReviewAction::Preview)?;
-                    } else if actions[1].contains(position) {
-                        self.review(ReviewAction::Open(Artifact::Code))?;
-                    } else if actions[2].contains(position)
-                        && self
-                            .runtime
-                            .preview()
-                            .is_some_and(|p| self.current().is_some_and(|r| r.id == p.id))
-                    {
-                        self.runtime.stop_preview();
-                        self.notice = "Preview stopped.".into();
-                    }
-                } else if self.tab == DetailTab::Overview && parts[2].contains(position) {
-                    let run = self.current().expect("Selected run exists");
-                    let lines =
-                        super::details::overview_lines(run, &self.agent_note, parts[2].width);
-                    let count = ratatui::widgets::Paragraph::new(lines)
-                        .wrap(ratatui::widgets::Wrap { trim: false })
-                        .line_count(parts[2].width);
-                    let last = count
-                        .saturating_sub(parts[2].height as usize)
-                        .min(u16::MAX as usize) as u16;
-                    let row =
-                        usize::from(position.y - parts[2].y + self.scroll.unwrap_or(0).min(last));
-                    if !self.agent_note.trim().is_empty()
-                        && row + 1 == count
-                        && position.x < parts[2].x + 16
-                    {
-                        self.review(ReviewAction::Open(Artifact::Agent))?;
-                    }
-                } else if self.tab == DetailTab::Evidence
-                    && parts[2].contains(position)
-                    && position.y == parts[2].y
-                    && self.scroll.unwrap_or(0) == 0
-                {
-                    let x = position.x.saturating_sub(parts[2].x);
-                    if x < 13 {
-                        self.review(ReviewAction::Open(Artifact::Report))?;
-                    } else if x < 28 {
-                        self.review(ReviewAction::Open(Artifact::Agent))?;
-                    } else {
-                        self.review(ReviewAction::Open(Artifact::Evidence))?;
-                    }
+            } else if parts[0].contains(position) && self.selection.comparing {
+                self.side = if position.x < parts[0].x + parts[0].width / 2 {
+                    super::state::Side::Reference
+                } else {
+                    super::state::Side::Other
+                };
+                self.scroll = None;
+                self.load_context()?;
+            } else if parts[1].contains(position) {
+                self.tab = DetailTab::ALL[((position.x - parts[1].x) / 12).min(2) as usize];
+                self.scroll = None;
+            } else if parts[2].contains(position) && self.current().is_some() {
+                let actions = action_areas(parts[2]);
+                if actions[0].contains(position) {
+                    self.review(ReviewAction::Preview)?;
+                } else if actions[1].contains(position) {
+                    self.review(ReviewAction::Open(Artifact::Code))?;
+                } else {
+                    self.stop_preview();
                 }
             }
         }
