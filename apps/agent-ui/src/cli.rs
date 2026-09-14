@@ -1,9 +1,5 @@
 use crate::{
-    application::Application,
-    artifact::Artifact,
-    process::Cancel,
-    settings::{Effort, Settings},
-    tui,
+    application::Application, artifact::Artifact, process::Cancel, settings::Settings, tui,
 };
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
@@ -12,7 +8,7 @@ use std::{env, path::PathBuf, thread, time::Duration};
 #[derive(Parser)]
 #[command(
     version,
-    about = "Run local Codex experiments and inspect their evidence"
+    about = "Run local agent experiments and inspect their evidence"
 )]
 struct Cli {
     #[arg(long, global = true)]
@@ -20,11 +16,13 @@ struct Cli {
     #[arg(long, global = true)]
     data_dir: Option<PathBuf>,
     #[arg(long, global = true)]
-    codex: Option<PathBuf>,
-    #[arg(long, global = true, default_value = "gpt-5.6-luna")]
-    model: String,
-    #[arg(long, global = true, default_value = "low", value_enum)]
-    effort: Effort,
+    binary: Option<PathBuf>,
+    #[arg(long, global = true, default_value = "codex")]
+    provider: String,
+    #[arg(long, global = true)]
+    model: Option<String>,
+    #[arg(long, global = true)]
+    effort: Option<String>,
     #[arg(long, global = true, default_value_t = 300)]
     timeout: u64,
     #[command(subcommand)]
@@ -32,6 +30,8 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Action {
+    /// List providers, models, and reasoning efforts.
+    Providers,
     /// Open the terminal application.
     Ui {
         #[arg(long)]
@@ -49,10 +49,10 @@ enum Action {
     Compare {
         reference: String,
         other: String,
-        /// Start a separate read-only Codex assessment. This uses subscription tokens.
+        /// Start a separate read-only agent assessment. This uses subscription tokens.
         #[arg(long, conflicts_with = "saved")]
         assess: bool,
-        /// Read the saved assessment for this exact pair. Do not start Codex.
+        /// Read the saved assessment for this exact pair. Do not start an agent.
         #[arg(long, conflicts_with = "assess")]
         saved: bool,
     },
@@ -72,7 +72,7 @@ enum Action {
     },
     /// Check local binaries and show storage paths.
     Doctor,
-    /// Sign in with a separate ChatGPT subscription login.
+    /// Sign in to the selected provider.
     Login,
 }
 fn project(cli: &Cli) -> Result<PathBuf> {
@@ -87,6 +87,13 @@ fn project(cli: &Cli) -> Result<PathBuf> {
 }
 pub fn run() -> Result<()> {
     let mut cli = Cli::parse();
+    if matches!(cli.command, Some(Action::Providers)) {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&crate::providers::catalog())?
+        );
+        return Ok(());
+    }
     let root = cli
         .data_dir
         .clone()
@@ -97,6 +104,7 @@ pub fn run() -> Result<()> {
         width: 120,
         height: 36,
     }) {
+        Action::Providers => unreachable!(),
         Action::Tasks => {
             for task in runtime.task_views()? {
                 println!("{:<28} {}", task.id, task.status());
@@ -113,7 +121,7 @@ pub fn run() -> Result<()> {
             saved,
         } => {
             if assess {
-                runtime.start_assessment(&reference, &other, cli.settings())?;
+                runtime.start_assessment(&reference, &other, cli.settings()?)?;
                 runtime
                     .cancellation()
                     .context("Assessment did not start")?
@@ -177,14 +185,14 @@ pub fn run() -> Result<()> {
                 thread::sleep(Duration::from_millis(300));
             }
         }
-        Action::Doctor => println!("{}", runtime.doctor(cli.codex.as_deref())?),
-        Action::Login => runtime.login(cli.codex.as_deref())?,
+        Action::Doctor => println!("{}", runtime.doctor(&cli.settings()?)?),
+        Action::Login => runtime.login(&cli.settings()?)?,
         Action::Ui {
             snapshot,
             width,
             height,
         } => {
-            let app = tui::App::new(runtime, cli.settings())?;
+            let app = tui::App::new(runtime, cli.settings()?)?;
             if snapshot {
                 print!("{}", tui::snapshot(&app, width, height)?);
             } else {
@@ -192,7 +200,7 @@ pub fn run() -> Result<()> {
             }
         }
         Action::Run { task } => {
-            let id = runtime.start(&task, cli.settings())?;
+            let id = runtime.start(&task, cli.settings()?)?;
             runtime
                 .cancellation()
                 .context("Run did not start")?
@@ -210,13 +218,21 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 impl Cli {
-    fn settings(&self) -> Settings {
-        Settings {
-            model: self.model.clone(),
-            effort: self.effort,
-            timeout: self.timeout,
-            codex: self.codex.clone(),
+    fn settings(&self) -> Result<Settings> {
+        let mut settings = Settings::for_provider(&self.provider)?;
+        if let Some(model) = &self.model {
+            settings.model = model.clone();
+            settings.effort = crate::providers::descriptor(&self.provider)?
+                .default_effort(model)
+                .into();
         }
+        if let Some(effort) = &self.effort {
+            settings.effort = effort.clone();
+        }
+        settings.timeout = self.timeout;
+        settings.binary = self.binary.clone();
+        settings.validate()?;
+        Ok(settings)
     }
 }
 #[cfg(test)]
@@ -227,19 +243,51 @@ mod tests {
     fn ui_settings_keep_an_unavailable_tool_override_without_resolving_it() {
         let cli = Cli::try_parse_from([
             "agent-ui",
-            "--codex",
+            "--binary",
             "/missing/codex",
             "--model",
             "requested-model",
             "ui",
         ])
         .unwrap();
-        let settings = cli.settings();
+        let settings = cli.settings().unwrap();
         assert_eq!(settings.model, "requested-model");
         assert_eq!(
-            settings.codex.as_deref(),
+            settings.binary.as_deref(),
             Some(std::path::Path::new("/missing/codex"))
         );
         assert!(settings.validate().is_ok());
+    }
+    #[test]
+    fn cli_selects_provider_defaults_and_rejects_incompatible_efforts() {
+        let cli = Cli::try_parse_from([
+            "agent-ui",
+            "--provider",
+            "claude",
+            "--model",
+            "fable",
+            "run",
+            "smoke",
+        ])
+        .unwrap();
+        let settings = cli.settings().unwrap();
+        assert_eq!(
+            (&*settings.provider, &*settings.model, &*settings.effort),
+            ("claude", "fable", "high")
+        );
+        let cli = Cli::try_parse_from([
+            "agent-ui",
+            "--provider",
+            "claude",
+            "--effort",
+            "ultra",
+            "run",
+            "smoke",
+        ])
+        .unwrap();
+        assert!(cli.settings().is_err());
+        let cli =
+            Cli::try_parse_from(["agent-ui", "--model", "gpt-6-astra", "run", "smoke"]).unwrap();
+        assert_eq!(cli.settings().unwrap().effort, "medium");
     }
 }

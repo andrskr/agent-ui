@@ -8,7 +8,7 @@ use super::{
 use crate::{
     comparison::Comparison,
     report::{Check, Report, State, Usage},
-    settings::{Effort, Settings},
+    settings::Settings,
     task_result::{Selection, TaskPair, TaskView},
 };
 use ratatui::{
@@ -21,9 +21,10 @@ use ratatui::{
 fn report(id: &str, task: &str, at: u64) -> Report {
     let settings = Settings {
         model: "gpt-5.6-luna".into(),
-        effort: Effort::Low,
+        effort: "low".into(),
         timeout: 60,
-        codex: None,
+        provider: "codex".into(),
+        binary: None,
     };
     let mut run = Report::new(id.into(), task.into(), "unused/app".into(), &settings);
     run.created_at_ms = at;
@@ -39,7 +40,9 @@ fn report(id: &str, task: &str, at: u64) -> Report {
         cached_input_tokens: 14_848,
         output_tokens: 418,
         reasoning_output_tokens: None,
+        cache_write_input_tokens: None,
     });
+    run.estimate_cost_from_totals();
     run.before.insert("src/app.tsx".into(), "before".into());
     run.after.insert("src/app.tsx".into(), "after".into());
     run.after.insert("src/settings.tsx".into(), "new".into());
@@ -275,4 +278,159 @@ fn comparison_side_selects_the_correct_preview_and_keeps_values_distinct() {
     let output = render(&screen, 150, 44);
     assert!(output.contains("\"id\": \"b\""));
     assert!(!output.contains("\"id\": \"a\""));
+}
+
+#[test]
+fn cost_values_render_for_single_runs_and_comparisons_at_supported_widths() {
+    let mut tasks = tasks();
+    for task in &mut tasks.items {
+        if let Some(run) = &mut task.run {
+            run.model_requested = if task.id == "bare" {
+                "gpt-5.6-sol"
+            } else {
+                "gpt-5.6-luna"
+            }
+            .into();
+            run.usage = Some(Usage {
+                input_tokens: 100_000,
+                cached_input_tokens: 60_000,
+                output_tokens: 10_000,
+                reasoning_output_tokens: None,
+                cache_write_input_tokens: None,
+            });
+            run.estimate_cost_from_totals();
+        }
+    }
+    let mut selection = Selection {
+        task: Some("bare".into()),
+        pair: Some(TaskPair::new("bare".into(), "guided".into()).unwrap()),
+        comparing: false,
+    };
+    for (width, height) in [(76, 24), (150, 44)] {
+        let output = render(&screen(&tasks, &selection), width, height);
+        assert!(output.contains("$0.53"), "{output}");
+    }
+    let comparison = Comparison::new(
+        tasks.items[0].run.clone().unwrap(),
+        tasks.items[2].run.clone().unwrap(),
+    )
+    .unwrap();
+    selection.comparing = true;
+    for (width, height) in [(76, 24), (150, 44)] {
+        let mut view = screen(&tasks, &selection);
+        view.comparison = Some(&comparison);
+        let output = render(&view, width, height);
+        for value in ["$0.53", "$0.02", "−$0.51"] {
+            assert!(output.contains(value), "{output}");
+        }
+    }
+}
+
+#[test]
+fn provider_form_keeps_choices_and_mouse_targets_in_sync() {
+    use super::{
+        layout::{modal_field, modal_rect, modal_submit},
+        state::FormField,
+        view::settings_fields,
+    };
+    let mut settings = Settings::default();
+    settings.step_provider(1);
+    settings.step_model(1);
+    settings.step_effort(1);
+    assert_eq!(
+        (&*settings.provider, &*settings.model, &*settings.effort),
+        ("claude", "claude-opus-5", "xhigh")
+    );
+    for (width, height) in [(76, 24), (120, 36)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let area = modal_rect(Rect::new(0, 0, width, height));
+        terminal
+            .draw(|frame| settings_fields(frame, area, &settings, FormField::Effort))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        for (i, value) in ["Anthropic / Claude Code", "Opus 5", "xhigh"]
+            .into_iter()
+            .enumerate()
+        {
+            let field = modal_field(area, i);
+            let text: String = (field.x..field.right())
+                .map(|x| buffer[(x, field.y)].symbol())
+                .collect();
+            assert!(text.starts_with(value), "{text}");
+            assert!(field.y < area.y + 11);
+            assert!(!field.intersects(modal_submit(area)));
+        }
+        assert_eq!(FormField::Provider.step(1), FormField::Model);
+        assert_eq!(FormField::Model.step(1), FormField::Effort);
+        assert_eq!(FormField::Effort.step(1), FormField::Provider);
+    }
+}
+
+#[test]
+fn form_arrow_keys_separate_field_navigation_from_value_selection() {
+    use super::state::FormField;
+    use crossterm::event::KeyCode;
+    let mut settings = Settings::default();
+    let mut field = FormField::Provider;
+    field.select(KeyCode::Down, &mut settings);
+    assert_eq!(field, FormField::Model);
+    assert_eq!(settings.model, "gpt-5.6-luna");
+    field.select(KeyCode::Up, &mut settings);
+    assert_eq!(field, FormField::Provider);
+    field.select(KeyCode::Up, &mut settings);
+    assert_eq!(field, FormField::Effort);
+    assert_eq!(settings.effort, "low");
+    field.select(KeyCode::Right, &mut settings);
+    assert_eq!(field, FormField::Effort);
+    assert_eq!(settings.effort, "medium");
+    field.select(KeyCode::Tab, &mut settings);
+    field.select(KeyCode::Right, &mut settings);
+    assert_eq!(
+        (&*settings.provider, &*settings.model, &*settings.effort),
+        ("claude", "claude-sonnet-5", "high")
+    );
+    field.select(KeyCode::Down, &mut settings);
+    field.select(KeyCode::Right, &mut settings);
+    assert_eq!(field, FormField::Model);
+    assert_eq!(settings.model, "claude-opus-5");
+    field.select(KeyCode::Char('x'), &mut settings);
+    field.select(KeyCode::Backspace, &mut settings);
+    assert_eq!(settings.model, "claude-opus-5");
+    field.select(KeyCode::Left, &mut settings);
+    assert_eq!(settings.model, "claude-sonnet-5");
+    field.select(KeyCode::BackTab, &mut settings);
+    assert_eq!(field, FormField::Provider);
+    field.select(KeyCode::Left, &mut settings);
+    assert_eq!(
+        (&*settings.provider, &*settings.model, &*settings.effort),
+        ("codex", "gpt-5.6-luna", "low")
+    );
+}
+
+#[test]
+fn models_without_effort_have_no_value_control() {
+    use super::{
+        layout::{modal_field, modal_rect},
+        state::FormField,
+        view::settings_fields,
+    };
+    use crossterm::event::KeyCode;
+    let mut settings = Settings::for_provider("claude").unwrap();
+    settings.select_model("haiku").unwrap();
+    let mut field = FormField::Effort;
+    field.select(KeyCode::Right, &mut settings);
+    assert_eq!(settings.effort, "default");
+    for (width, height) in [(76, 24), (120, 36)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let area = modal_rect(Rect::new(0, 0, width, height));
+        terminal
+            .draw(|frame| settings_fields(frame, area, &settings, field))
+            .unwrap();
+        let rect = modal_field(area, 2);
+        let row: String = (rect.x..rect.right())
+            .map(|x| terminal.backend().buffer()[(x, rect.y)].symbol())
+            .collect();
+        assert!(row.starts_with("Not supported"));
+        assert!(!row.contains('‹') && !row.contains('›'));
+    }
 }

@@ -111,6 +111,29 @@ pub(super) fn overview_lines(run: &Report, note: &str, width: u16) -> Vec<Line<'
         lines.push(Line::default());
     }
     let usage = run.usage.as_ref();
+    lines.push(pair(
+        "Estimated API cost (USD)",
+        &crate::cost::format_usd(run.cost_usd),
+        width,
+    ));
+    let cost_note = if run.cost_usd.is_some_and(|usd| usd > 0.0) {
+        match run.cost_basis {
+            Some(crate::cost::Basis::Requests) => {
+                "API rates from saved requests. Subscription charge is separate."
+            }
+            Some(crate::cost::Basis::RunTotals) => {
+                "Standard rates for the requested model. Request details unavailable."
+            }
+            Some(crate::cost::Basis::ProviderReported) => {
+                "API price reported by the provider. Subscription charge is separate."
+            }
+            None => &run.cost_note,
+        }
+    } else {
+        &run.cost_note
+    };
+    lines.push(Line::from(cost_note.to_owned()).fg(MUTED));
+    lines.push(Line::default());
     let times = [
         (
             "Setup",
@@ -313,8 +336,8 @@ pub(super) fn screen_lines(content: &Content<'_>, width: u16) -> Vec<Line<'stati
     if let Some(run) = content.run {
         lines.push(
             Line::from(format!(
-                "{} · {}",
-                run.model_requested, run.effort_requested
+                "{} · {} · {}",
+                run.provider, run.model_requested, run.effort_requested
             ))
             .fg(MUTED),
         );
@@ -379,6 +402,12 @@ fn comparison_lines(c: &Comparison, assessment: &str, width: u16) -> Vec<Line<'s
     let m = &c.measurements;
     let mut lines = vec![Line::from("Measured results").bold(), Line::default()];
     let mut rows = Vec::new();
+    rows.push((
+        "API cost (est)",
+        crate::cost::format_usd(m.estimated_cost_usd.reference),
+        crate::cost::format_usd(m.estimated_cost_usd.other),
+        crate::cost::format_difference(m.estimated_cost_usd.difference),
+    ));
     for (label, times) in [
         ("Setup", &m.setup_seconds),
         ("Agent", &m.agent_seconds),
@@ -431,6 +460,14 @@ fn comparison_lines(c: &Comparison, assessment: &str, width: u16) -> Vec<Line<'s
     }
     lines.push(Line::default());
     lines.push(
+        Line::from("Estimated API cost is in USD. Subscription charges are separate.").fg(MUTED),
+    );
+    for (side, run) in [("A", a), ("B", b)] {
+        if !run.cost_note.is_empty() {
+            lines.push(Line::from(format!("{side}: {}", run.cost_note)).fg(MUTED));
+        }
+    }
+    lines.push(
         Line::from("Cached tokens are part of input. Lower usage does not prove better UI.")
             .fg(MUTED),
     );
@@ -452,6 +489,11 @@ fn comparison_lines(c: &Comparison, assessment: &str, width: u16) -> Vec<Line<'s
     }
     for (name, left, right) in [
         (
+            "Provider",
+            Some(a.provider.as_str()),
+            Some(b.provider.as_str()),
+        ),
+        (
             "Model",
             Some(a.model_requested.as_str()),
             Some(b.model_requested.as_str()),
@@ -462,9 +504,9 @@ fn comparison_lines(c: &Comparison, assessment: &str, width: u16) -> Vec<Line<'s
             Some(b.effort_requested.as_str()),
         ),
         (
-            "Codex",
-            a.codex_version.as_deref(),
-            b.codex_version.as_deref(),
+            "Agent CLI",
+            a.provider_version.as_deref(),
+            b.provider_version.as_deref(),
         ),
         ("Node", a.node_version.as_deref(), b.node_version.as_deref()),
         ("Vite+", a.vp_version.as_deref(), b.vp_version.as_deref()),
@@ -496,9 +538,9 @@ fn comparison_lines(c: &Comparison, assessment: &str, width: u16) -> Vec<Line<'s
         width,
     );
     section(&mut lines, width);
-    lines.push(Line::from("Codex assessment · separate time and usage").bold());
+    lines.push(Line::from("Agent assessment · separate time and usage").bold());
     if assessment.is_empty() {
-        lines.push(Line::from("m Ask Codex to inspect saved code and evidence.").fg(ACCENT));
+        lines.push(Line::from("m Ask agent to inspect saved code and evidence.").fg(ACCENT));
         lines.push(Line::from("Visual review stays in the browser.").fg(MUTED));
     } else {
         lines.extend(

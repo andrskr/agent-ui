@@ -18,20 +18,52 @@ tasks. There is no run history, approval state, or promotion step.
 | `Journal`           | Measure phases and save progress and command output.                 |
 | `Report`            | Apply task lifecycle and completion rules to typed observations.     |
 | `Comparison`        | Compute signed differences from two saved results.                   |
-| `Assessment`        | Run an explicit Codex comparison and record its separate evidence.   |
+| `Cost`              | Define cost evidence and format USD values.                          |
+| `Assessment`        | Run an explicit agent comparison and record its separate evidence.   |
 | `Worker<T>`         | Own cancellation and join a background thread.                       |
 | `Preview`           | Own one server, port, lock, and readiness state.                     |
 | `Process`           | Own child groups and capture output.                                 |
-| `Codex`             | Own private session setup, command arguments, decoding, and traces.  |
+| `Provider`          | Own models, efforts, binaries, login, sessions, and pricing.         |
+| `Session`           | Build one command, decode events, and save provider artifacts.       |
 | TUI                 | Own selection, forms, search, scroll, and rendering.                 |
 
 The TUI does not read evidence files or own child processes. Pure comparison and rendering do not
-start Codex. `toolchain.rs` resolves executables; it does not select tasks or start previews.
+start an agent. `toolchain.rs` resolves shared tools and asks the provider to resolve its
+executable; it does not select tasks or start previews.
+
+## Provider boundary
+
+`providers/mod.rs` holds the provider registry, catalog types, and execution contract. Shared code
+looks up a provider by its string ID. It does not match on Codex or Claude. The model catalog holds
+model IDs, aliases, default effort, and valid efforts for each model. Custom IDs use the provider's
+custom effort list. `default` omits an explicit effort and lets the CLI choose.
+
+`Settings` validates choices and changes selection through this catalog. A provider change selects
+its default model and effort and clears the binary override. A model change resets an incompatible
+effort. The CLI and both TUI forms use these same rules.
+
+Each provider owns binary resolution, login checks, credentials, command arguments, event decoding,
+artifact capture, and cost calculation. `LocalSession` supplies a temporary HOME, explicit common
+environment, and local tool wrappers. Provider code adds its own environment. The shared executor
+saves raw events and command evidence, runs the process, and attempts artifact capture on failure.
+`Report` and `Assessment` accept only typed observations. Neither reads provider JSON.
+
+To add a provider:
+
+1. Add `providers/<id>/mod.rs`. Implement `Provider` and its `Session`. Put its catalog in that file
+   or a separate `catalog.rs`.
+2. Add `event.rs` for its JSON protocol. Add `cost.rs` only if it needs local pricing.
+3. Declare the module and add one entry in the registry in `providers/mod.rs`.
+
+Shared CLI, forms, runner, assessment, and comparison need no provider-specific branches. Add
+in-memory tests beside the adapter. Run the separate live checks for its process and login behavior.
+A provider with a new transport can use the same typed evidence, but this contract currently runs
+local agent CLIs. Direct HTTP APIs are not implemented.
 
 ## Replacement
 
 1. Validate settings, task source, package settings, starter manifest, and executables.
-2. Take the storage execution lock. No other run or assessment can start.
+2. Take the storage execution lock. Check provider version and login before deleting output.
 3. Stop this application's preview for the selected task.
 4. Take the old run's preview lock. A preview in another process blocks replacement.
 5. Save the task slot as `Removing(old-id)` before deleting files.
@@ -71,11 +103,24 @@ session data after trace capture.
 `TaskPair` stores two task IDs for UI selection. `Comparison::Pair` binds two exact task/run IDs.
 Measurements use B minus A. Missing values remain missing. Input changes come from saved input
 hashes. Setup and final source changes come from saved inventories. The comparison includes both
-reports, so model, effort, versions, task settings, and verification remain available.
+reports, so provider, model, effort, versions, task settings, and verification remain available.
+
+Cost estimates use API prices in USD. Provider event adapters emit typed usage and cost
+observations. The Codex adapter reads saved request traces and checks cumulative totals. Its
+fallback uses the requested model and run totals. The Claude adapter uses the final native cost when
+present. It also keeps distinct message records, with the last cumulative record for each message
+and request. Its CodexBar fallback needs known prices and agreement with final usage when final
+usage exists. A partial stream is marked as partial. Missing measurements remain missing.
+
+`Report` stores the amount, basis, models, source, and limits. `Store` only reads saved values. New
+reports use schema 2. There is no old-report fallback, migration, or cost cache. TUI rendering does
+not read traces. `Comparison` keeps a missing cost difference missing.
 
 The optional assessment takes the execution lock and rechecks both current run IDs before starting.
-It uses a fresh Codex session with a read-only sandbox. It treats task prompts, instructions, code,
-and logs as evidence. It has no browser review step. Its usage never enters either task report.
+It uses the selected provider with its assessment permissions. Codex uses its read-only sandbox.
+Claude exposes Read, Glob, and Grep only, with access to the two saved run folders. It treats task
+prompts, instructions, code, and logs as evidence. It has no browser review step. Its usage never
+enters either task report.
 
 There is one assessment folder. Starting an assessment replaces it. Rerunning either member deletes
 it. A changed run ID makes it unavailable. Recovery deletes stale assessments and marks abandoned
@@ -99,9 +144,9 @@ signed differences, event reduction, lifecycle rules, package settings, and rend
 create files, start processes, install packages, or open browsers or editors.
 
 Manual checks use an external project and output folder. They check locks, deletion, recovery,
-package installation, real Codex use, TUI input, browser rendering, and process shutdown.
+package installation, real provider use, TUI input, browser rendering, and process shutdown.
 Compilation and package tooling still write normal build output and caches.
 
-The app has one active operation per storage location. It has no job queue, event database, provider
-framework, or migration layer. Configuration separation does not provide full host isolation.
-Evidence can contain task text and paths. A Codex code assessment cannot approve visual quality.
+The app has one active operation per storage location. It has no job queue, event database, plugin
+loader, or migration layer. Configuration separation does not provide full host isolation. Evidence
+can contain task text and paths. An agent code assessment cannot approve visual quality.

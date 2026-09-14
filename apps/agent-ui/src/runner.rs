@@ -1,9 +1,9 @@
 use crate::settings::Settings;
 use crate::{
-    codex,
     journal::Journal,
-    process::Cancel,
+    process::{self, Cancel},
     project::TaskSource,
+    providers::{self, Purpose, Request},
     report::{Phase, Report, now},
     storage::Store,
     toolchain::Tools,
@@ -39,34 +39,67 @@ pub fn start(
         worker: Some(worker),
     })
 }
-
 fn execute(
     source: TaskSource,
     settings: &Settings,
     tools: &Tools,
     journal: &mut Journal,
 ) -> Result<()> {
-    let (workspace, session) = journal.measure(Phase::Setup, |journal| {
+    let provider = providers::get(&settings.provider)?;
+    let store = journal.store().clone();
+    let evidence = journal.files.evidence();
+    let note = journal.files.agent_report();
+    let (workspace, mut session) = journal.measure(Phase::Setup, |journal| {
         let versions = tools.versions()?;
-        journal.report.codex_version = Some(versions.codex);
+        journal.report.provider_version = Some(versions.agent);
         journal.report.node_version = Some(versions.node);
         journal.report.vp_version = Some(versions.vp);
         let workspace = PreparedWorkspace::prepare(source, journal, tools)?;
-        let session = codex::prepare(journal, tools, &workspace.app)?;
+        let request = Request {
+            settings,
+            cwd: &workspace.app,
+            evidence: &evidence,
+            note: &note,
+            prompt: &workspace.prompt,
+            purpose: Purpose::Task,
+            read_roots: &[],
+        };
+        let session = provider.prepare(&store, &journal.report.id, tools, &request)?;
         Ok((workspace, session))
     })?;
     journal.measure(Phase::Agent, |journal| {
-        // Archive the session and source evidence even when the agent fails.
-        let result = codex::execute(&session, settings, tools, &workspace, journal);
-        let archived = session.archive(journal.store(), &journal.files.evidence());
+        journal.report.record("Agent started");
+        let request = Request {
+            settings,
+            cwd: &workspace.app,
+            evidence: &evidence,
+            note: &note,
+            prompt: &workspace.prompt,
+            purpose: Purpose::Task,
+            read_roots: &[],
+        };
+        let result = providers::execute(
+            session.as_mut(),
+            &store,
+            &request,
+            &journal.cancellation(),
+            |observations, seconds| journal.agent_progress(seconds, observations),
+        );
         let source = inventory(&workspace.app);
-        if let Ok(after) = source.as_ref() {
+        if let Ok(after) = &source {
             journal.report.record_source_changes(after.clone());
         }
-        result?;
-        archived?;
+        journal
+            .report
+            .apply_cost(provider.estimate(&journal.report.cost_input(), Some(&evidence)));
+        let result = result?;
+        if let Ok(outcome) = &result.outcome {
+            journal.agent_outcome(outcome);
+        }
+        process::checked(&result.outcome?, "Agent")?;
+        result.artifacts?;
         source?;
-        Ok(())
+        journal.report.check_agent_completion()
     })?;
     drop(session);
     journal.measure(Phase::Verification, |journal| {

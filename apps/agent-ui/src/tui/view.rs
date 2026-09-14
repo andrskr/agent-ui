@@ -252,7 +252,7 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
         " Type to search   Enter Apply   Esc Clear".into()
     } else if screen.selection.comparing {
         format!(
-            " v Side  s Swap  c Change pair  m Ask Codex  Esc Back{}",
+            " v Side  s Swap  c Change pair  m Ask agent  Esc Back{}",
             if screen.active { "  C Cancel" } else { "" }
         )
     } else {
@@ -387,6 +387,7 @@ fn modal(frame: &mut Frame, app: &App) {
     frame.render_widget(
         block(match app.modal {
             Modal::Run => "RUN TASK",
+            Modal::Assess => "ASSESS PAIR",
             Modal::Picker => "COMPARE WITH",
             _ => "KEYBOARD",
         })
@@ -394,36 +395,18 @@ fn modal(frame: &mut Frame, app: &App) {
         area,
     );
     match app.modal {
-        Modal::Run => {
+        Modal::Run | Modal::Assess => {
             frame.render_widget(
                 Paragraph::new(app.focused_task().unwrap_or("No task"))
                     .fg(ACCENT)
                     .bold(),
                 Rect::new(area.x + 4, area.y + 2, area.width - 8, 1),
             );
-            for (i, label, value) in [
-                (0, "Model", app.settings.model.as_str()),
-                (1, "Effort", app.settings.effort.as_str()),
-            ] {
-                let rect = modal_field(area, i);
-                frame.render_widget(
-                    Paragraph::new(label).fg(MUTED),
-                    Rect::new(area.x + 4, rect.y, 10, 1),
-                );
-                let chosen = (i == 0) == (app.field == FormField::Model);
-                frame.render_widget(
-                    Paragraph::new(value).bg(if chosen { SELECTED } else { BG }),
-                    rect,
-                );
-                if i == 1 {
-                    frame.render_widget(
-                        Paragraph::new("‹  ›").fg(ACCENT),
-                        Rect::new(rect.right() - 4, rect.y, 4, 1),
-                    );
-                }
-            }
-            let message = if app.current().is_some() {
-                "Starting removes this task's previous code, logs, and reports.\nIts saved Codex assessment will also be removed."
+            settings_fields(frame, area, &app.settings, app.field);
+            let message = if app.modal == Modal::Assess {
+                "Read saved code and evidence. This uses separate agent tokens.\nStarting replaces the previous assessment."
+            } else if app.current().is_some() {
+                "Starting removes this task's previous code, logs, and reports.\nIts saved agent assessment will also be removed."
             } else {
                 "Start from the React and Astryx starter.\nThe run copies the current task inputs."
             };
@@ -433,20 +416,22 @@ fn modal(frame: &mut Frame, app: &App) {
             );
             frame.render_widget(
                 Paragraph::new(format!(
-                    "{}s limit · Tab Field · Arrows Effort",
+                    "{}s limit · ↑↓ Field · ←→ Value · Tab Next",
                     app.settings.timeout
                 ))
                 .fg(MUTED),
                 Rect::new(area.x + 4, area.y + 14, area.width - 8, 1),
             );
-            button(frame, modal_submit(area), "Start run  ↵", true);
-            if app.field == FormField::Model {
-                let r = modal_field(area, 0);
-                frame.set_cursor_position((
-                    r.x + (app.settings.model.len() as u16).min(r.width - 1),
-                    r.y,
-                ));
-            }
+            button(
+                frame,
+                modal_submit(area),
+                if app.modal == Modal::Assess {
+                    "Start assessment  ↵"
+                } else {
+                    "Start run  ↵"
+                },
+                true,
+            );
         }
         Modal::Picker => {
             frame.render_widget(
@@ -495,10 +480,51 @@ fn modal(frame: &mut Frame, app: &App) {
             );
         }
         _ => {
-            let text = "↑↓ / j k     Select task\nTab / 1 2 3  Overview / Activity / Evidence\nc            Choose another task for comparison\nv / s        Select side / Swap comparison sides\nEsc          Leave comparison\nn            Run task; removes its previous output\nm            Ask Codex to assess the current pair\nb / x        Open / Stop this task's preview\ne / r / a / f Code / JSON / Agent note / Evidence\nC            Cancel active work\n/            Search tasks\nPgUp / PgDn  Scroll\nq / Ctrl+C   Quit and stop owned processes\n\nEach task keeps only its most recent run.\nEsc Back";
+            let text = "↑↓ / j k     Select task\nTab / 1 2 3  Overview / Activity / Evidence\nc            Choose another task for comparison\nv / s        Select side / Swap comparison sides\nEsc          Leave comparison\nn            Run task; removes its previous output\nm            Ask agent to assess the current pair\nb / x        Open / Stop this task's preview\ne / r / a / f Code / JSON / Agent note / Evidence\nC            Cancel active work\n/            Search tasks\nPgUp / PgDn  Scroll\nq / Ctrl+C   Quit and stop owned processes\n\nEach task keeps only its most recent run.\nEsc Back";
             frame.render_widget(
                 Paragraph::new(text).wrap(Wrap { trim: false }),
                 area.inner(Margin::new(4, 2)),
+            );
+        }
+    }
+}
+
+pub(super) fn settings_fields(
+    frame: &mut Frame,
+    area: Rect,
+    settings: &crate::settings::Settings,
+    field: FormField,
+) {
+    let provider = crate::providers::descriptor(&settings.provider).ok();
+    let provider_name = provider.map_or(settings.provider.as_str(), |p| p.label);
+    let model_name = provider
+        .and_then(|p| p.model(&settings.model))
+        .map_or(settings.model.as_str(), |m| m.label);
+    let has_effort = provider.is_none_or(|p| !p.efforts(&settings.model).is_empty());
+    let effort_name = if has_effort {
+        settings.effort.as_str()
+    } else {
+        "Not supported"
+    };
+    for (i, label, value) in [
+        (0, "Provider", provider_name),
+        (1, "Model", model_name),
+        (2, "Effort", effort_name),
+    ] {
+        let rect = modal_field(area, i);
+        frame.render_widget(
+            Paragraph::new(label).fg(MUTED),
+            Rect::new(area.x + 4, rect.y, 10, 1),
+        );
+        let chosen = i == field as usize;
+        frame.render_widget(
+            Paragraph::new(value).bg(if chosen { SELECTED } else { BG }),
+            rect,
+        );
+        if i != 2 || has_effort {
+            frame.render_widget(
+                Paragraph::new("‹  ›").fg(ACCENT),
+                Rect::new(rect.right() - 4, rect.y, 4, 1),
             );
         }
     }

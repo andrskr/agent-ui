@@ -1,7 +1,7 @@
 use agent_ui::{
     comparison::{ChangeKind, Comparison, file_changes},
     report::{Report, State, Usage},
-    settings::{Effort, Settings},
+    settings::Settings,
     task_result::TaskPair,
 };
 use std::collections::BTreeMap;
@@ -13,9 +13,10 @@ fn report(id: &str, task: &str) -> Report {
         "unused/app".into(),
         &Settings {
             model: "test".into(),
-            effort: Effort::Low,
+            effort: "low".into(),
             timeout: 10,
-            codex: None,
+            provider: "codex".into(),
+            binary: None,
         },
     )
 }
@@ -30,6 +31,7 @@ fn comparison_keeps_missing_values_distinct_from_zero_and_uses_signed_difference
         cached_input_tokens: 100,
         output_tokens: 0,
         reasoning_output_tokens: None,
+        cache_write_input_tokens: None,
     });
     let missing = Comparison::new(a.clone(), b.clone()).unwrap();
     assert_eq!(missing.measurements.agent_seconds.difference, Some(-2.5));
@@ -42,6 +44,7 @@ fn comparison_keeps_missing_values_distinct_from_zero_and_uses_signed_difference
         cached_input_tokens: 50,
         output_tokens: 40,
         reasoning_output_tokens: None,
+        cache_write_input_tokens: None,
     });
     let measured = Comparison::new(a, b).unwrap();
     assert_eq!(
@@ -120,4 +123,36 @@ fn active_task_blocks_assessment_but_keeps_partial_measurements_available() {
     let comparison = Comparison::new(a, b).unwrap();
     assert!(!comparison.can_assess());
     assert!(comparison.measurements.setup_seconds.difference.is_none());
+}
+
+#[test]
+fn cost_comparison_uses_model_prices_and_preserves_missing_values_when_swapped() {
+    let mut a = report("one", "bare");
+    let mut b = report("two", "guided");
+    a.model_requested = "gpt-5.6-sol".into();
+    b.model_requested = "gpt-5.6-luna".into();
+    a.usage = Some(Usage {
+        input_tokens: 100_000,
+        cached_input_tokens: 60_000,
+        output_tokens: 10_000,
+        reasoning_output_tokens: None,
+        cache_write_input_tokens: None,
+    });
+    b.usage = a.usage.clone();
+    a.estimate_cost_from_totals();
+    b.estimate_cost_from_totals();
+    let forward = Comparison::new(a.clone(), b.clone()).unwrap();
+    assert!((forward.measurements.estimated_cost_usd.difference.unwrap() + 0.5088).abs() < 1e-10);
+    assert_eq!(forward.measurements.input_tokens.difference, Some(0));
+    let reverse = Comparison::new(b.clone(), a.clone()).unwrap();
+    assert!((reverse.measurements.estimated_cost_usd.difference.unwrap() - 0.5088).abs() < 1e-10);
+    b.cost_usd = None;
+    assert!(
+        Comparison::new(a, b)
+            .unwrap()
+            .measurements
+            .estimated_cost_usd
+            .difference
+            .is_none()
+    );
 }

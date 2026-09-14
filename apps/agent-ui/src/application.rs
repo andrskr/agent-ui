@@ -1,10 +1,10 @@
 use crate::{
     artifact::Artifact,
-    codex,
     comparison::Comparison,
     preview::Preview,
     process::Cancel,
     project::Project,
+    providers,
     report::Report,
     runner::{self, Active},
     settings::Settings,
@@ -157,12 +157,14 @@ impl Application {
             })
             .unwrap_or_else(|| "Usage not reported".into());
         Ok(format!(
-            "{} · {} · {} · {:.1}s\n{}\n{}\n{}\n{}",
+            "{} · {} · {} · {} · {:.1}s\n{}\nAPI cost (est): {}\n{}\n{}\n{}",
             report.state.label(),
+            report.provider,
             report.model,
             report.effort,
             report.seconds,
             usage,
+            crate::cost::format_usd(report.cost.as_ref().and_then(|cost| cost.usd)),
             report.visual_review,
             report.error.unwrap_or_default(),
             note
@@ -176,8 +178,9 @@ impl Application {
         ensure!(!self.is_busy(), "An operation is already active");
         settings.validate()?;
         let source = self.project.task(task)?;
-        let tools = Tools::discover(settings.codex.as_deref())?;
+        let tools = Tools::discover(&settings)?;
         let lock = self.store.lock()?;
+        providers::get(&settings.provider)?.preflight(&self.store, &tools.agent)?;
         self.stop_preview(task);
         let active = runner::start(self.store.clone(), source, settings, tools, lock)?;
         let id = active.id.clone();
@@ -257,14 +260,21 @@ impl Application {
         File::open(path)?.take(4096).read_to_end(&mut bytes)?;
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
-    pub fn login(&self, codex: Option<&Path>) -> Result<()> {
-        codex::login(&self.store, &Tools::discover(codex)?)
+    pub fn login(&self, settings: &Settings) -> Result<()> {
+        let provider = providers::get(&settings.provider)?;
+        provider.login(
+            &self.store,
+            &provider.resolve_binary(settings.binary.as_deref())?,
+        )
     }
-    pub fn doctor(&self, codex: Option<&Path>) -> Result<String> {
-        let tools = Tools::discover(codex)?;
+    pub fn doctor(&self, settings: &Settings) -> Result<String> {
+        let tools = Tools::discover(settings)?;
         let mut lines = Vec::new();
         for (name, path) in [
-            ("Codex", &tools.codex),
+            (
+                providers::descriptor(&settings.provider)?.label,
+                &tools.agent,
+            ),
             ("Node", &tools.node),
             ("Vite+", &tools.vp),
             ("Ripgrep", &tools.rg),
@@ -280,14 +290,6 @@ impl Application {
             self.project().display(),
             self.data().display(),
             self.tasks()?.len()
-        ));
-        lines.push(format!(
-            "Credential file: {}",
-            if self.data().join("private/auth.json").is_file() {
-                "present"
-            } else {
-                "imported from Codex on first run, or use login"
-            }
         ));
         Ok(lines.join("\n"))
     }

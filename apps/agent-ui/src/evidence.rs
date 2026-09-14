@@ -6,6 +6,8 @@ pub struct Usage {
     pub cached_input_tokens: u64,
     pub output_tokens: u64,
     pub reasoning_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_write_input_tokens: Option<u64>,
 }
 
 /// Agent observations. The report does not depend on the provider's JSON format.
@@ -16,6 +18,9 @@ pub enum AgentObservation {
 
 pub enum AgentUpdate {
     Thread(Option<String>),
+    Batch(Vec<AgentUpdate>),
+    UsageSnapshot(Option<Usage>),
+    Cost(crate::cost::Estimate),
     Turn(Option<Usage>),
     Failure(String),
     Activity {
@@ -30,6 +35,9 @@ impl Usage {
         self.input_tokens += sample.input_tokens;
         self.cached_input_tokens += sample.cached_input_tokens;
         self.output_tokens += sample.output_tokens;
+        if let Some(n) = sample.cache_write_input_tokens {
+            *self.cache_write_input_tokens.get_or_insert(0) += n;
+        }
         if let Some(n) = sample.reasoning_output_tokens {
             *self.reasoning_output_tokens.get_or_insert(0) += n;
         }

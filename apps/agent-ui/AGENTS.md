@@ -22,9 +22,11 @@ interactive TUI. Read [README.md](README.md) for the run flow, file structure, a
   `Store`.
 - Keep one current run per task. Validate inputs and tools before deleting the old output. Keep
   replacement, locks, and recovery in `Store`. Do not add history or approval states.
-- Compare different tasks through `Comparison`. Keep optional Codex assessment usage separate. Bind
+- Compare different tasks through `Comparison`. Keep optional agent assessment usage separate. Bind
   the assessment to exact run IDs. Keep preview ownership per task.
-- Keep provider JSON in `codex/event.rs`. Feed typed observations to `Report`.
+- Keep each provider's models, efforts, commands, login, and pricing in its provider folder.
+- Register providers once in `providers/mod.rs`. Do not add provider switches to shared callers.
+- Keep provider JSON in `providers/<id>/event.rs`. Feed typed observations to `Report`.
 - Use `Journal` for phase timing and report writes. Use the report lifecycle methods for terminal
   states.
 - Use the same runner for CLI and TUI actions.

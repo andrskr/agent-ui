@@ -1,17 +1,14 @@
-use agent_ui::{
-    report::Report,
-    settings::{Effort, Settings},
-    storage::valid_id,
-};
+use agent_ui::{report::Report, settings::Settings, storage::valid_id};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 fn settings() -> Settings {
     Settings {
         model: "test-model".into(),
-        effort: Effort::Low,
+        effort: "low".into(),
         timeout: 60,
-        codex: None,
+        provider: "codex".into(),
+        binary: None,
     }
 }
 
@@ -32,7 +29,7 @@ fn token_totals_add_turns_without_adding_cached_or_reasoning_tokens_twice() {
         r#"{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":20,"reasoning_output_tokens":8}}"#,
         r#"{"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":10,"output_tokens":7,"reasoning_output_tokens":2}}"#,
     ] {
-        report.observe(agent_ui::codex::event::decode(event.as_bytes()));
+        report.observe(agent_ui::providers::codex::event::decode(event.as_bytes()));
     }
 
     let saved = serde_json::to_value(&report).unwrap();
@@ -43,6 +40,7 @@ fn token_totals_add_turns_without_adding_cached_or_reasoning_tokens_twice() {
             "cached_input_tokens": 70,
             "output_tokens": 27,
             "reasoning_output_tokens": 10,
+            "cache_write_input_tokens": null,
         })
     );
     assert_eq!(report.thread_id.as_deref(), Some("thread-42"));
@@ -59,7 +57,7 @@ fn absent_or_invalid_usage_does_not_become_zero_in_the_report() {
         r#"{"type":"turn.completed","usage":{"input_tokens":"12","cached_input_tokens":0,"output_tokens":3}}"#,
     ] {
         let mut report = report();
-        report.observe(agent_ui::codex::event::decode(event.as_bytes()));
+        report.observe(agent_ui::providers::codex::event::decode(event.as_bytes()));
         let saved = serde_json::to_value(&report).unwrap();
         assert_eq!(saved["usage"], json!(null), "{event}");
         assert_eq!(saved["cost_usd"], json!(null));
@@ -70,7 +68,7 @@ fn absent_or_invalid_usage_does_not_become_zero_in_the_report() {
 #[test]
 fn reported_zero_usage_remains_distinct_from_absent_usage() {
     let mut report = report();
-    report.observe(agent_ui::codex::event::decode(br#"{"type":"turn.completed","usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0}}"#));
+    report.observe(agent_ui::providers::codex::event::decode(br#"{"type":"turn.completed","usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0}}"#));
     assert_eq!(
         serde_json::to_value(&report).unwrap()["usage"],
         json!({
@@ -78,6 +76,7 @@ fn reported_zero_usage_remains_distinct_from_absent_usage() {
             "cached_input_tokens": 0,
             "output_tokens": 0,
             "reasoning_output_tokens": null,
+            "cache_write_input_tokens": null,
         })
     );
 }
@@ -85,8 +84,8 @@ fn reported_zero_usage_remains_distinct_from_absent_usage() {
 #[test]
 fn malformed_events_block_completion_even_after_a_success_event() {
     let mut report = report();
-    report.observe(agent_ui::codex::event::decode(b"{broken"));
-    report.observe(agent_ui::codex::event::decode(
+    report.observe(agent_ui::providers::codex::event::decode(b"{broken"));
+    report.observe(agent_ui::providers::codex::event::decode(
         br#"{"type":"turn.completed"}"#,
     ));
     assert_eq!(report.invalid_event_lines, 1);
@@ -97,10 +96,10 @@ fn malformed_events_block_completion_even_after_a_success_event() {
 fn an_empty_or_unfinished_stream_cannot_pass_completion() {
     let mut report = report();
     assert!(report.check_agent_completion().is_err());
-    report.observe(agent_ui::codex::event::decode(
+    report.observe(agent_ui::providers::codex::event::decode(
         br#"{"type":"thread.started","thread_id":"unfinished"}"#,
     ));
-    report.observe(agent_ui::codex::event::decode(
+    report.observe(agent_ui::providers::codex::event::decode(
         br#"{"type":"item.completed","item":{"type":"agent_message","text":"Done"}}"#,
     ));
     assert!(report.check_agent_completion().is_err());
@@ -113,8 +112,10 @@ fn a_later_completion_does_not_erase_a_provider_failure() {
         r#"{"type":"error","message":"Model unavailable"}"#,
     ] {
         let mut report = report();
-        report.observe(agent_ui::codex::event::decode(failure.as_bytes()));
-        report.observe(agent_ui::codex::event::decode(
+        report.observe(agent_ui::providers::codex::event::decode(
+            failure.as_bytes(),
+        ));
+        report.observe(agent_ui::providers::codex::event::decode(
             br#"{"type":"turn.completed"}"#,
         ));
         assert_eq!(report.error.as_deref(), Some("Model unavailable"));
@@ -125,8 +126,8 @@ fn a_later_completion_does_not_erase_a_provider_failure() {
 #[test]
 fn warning_items_remain_visible_without_blocking_completion() {
     let mut report = report();
-    report.observe(agent_ui::codex::event::decode(br#"{"type":"item.completed","item":{"type":"error","message":"Feature under development"}}"#));
-    report.observe(agent_ui::codex::event::decode(
+    report.observe(agent_ui::providers::codex::event::decode(br#"{"type":"item.completed","item":{"type":"error","message":"Feature under development"}}"#));
+    report.observe(agent_ui::providers::codex::event::decode(
         br#"{"type":"turn.completed"}"#,
     ));
     assert_eq!(report.warnings, ["Feature under development"]);
@@ -142,13 +143,13 @@ fn warning_items_remain_visible_without_blocking_completion() {
 #[test]
 fn unknown_event_types_are_counted_without_discarding_known_events() {
     let mut report = report();
-    report.observe(agent_ui::codex::event::decode(
+    report.observe(agent_ui::providers::codex::event::decode(
         br#"{"type":"future.event","payload":{"anything":true}}"#,
     ));
-    report.observe(agent_ui::codex::event::decode(
+    report.observe(agent_ui::providers::codex::event::decode(
         br#"{"type":"turn.completed"}"#,
     ));
-    report.observe(agent_ui::codex::event::decode(
+    report.observe(agent_ui::providers::codex::event::decode(
         br#"{"type":"future.event"}"#,
     ));
     assert_eq!(

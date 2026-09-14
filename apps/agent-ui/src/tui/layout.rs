@@ -76,7 +76,7 @@ pub(super) fn action_areas(area: Rect) -> [Rect; 3] {
 pub(super) fn modal_field(area: Rect, index: usize) -> Rect {
     Rect::new(
         area.x + 16,
-        area.y + 4 + index as u16 * 3,
+        area.y + 4 + index as u16 * 2,
         area.width.saturating_sub(21),
         1,
     )

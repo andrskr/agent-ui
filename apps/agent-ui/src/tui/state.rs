@@ -24,16 +24,14 @@ impl DetailTab {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FormField {
+    Provider,
     Model,
     Effort,
 }
 impl FormField {
-    pub fn step(self) -> Self {
-        if self == Self::Model {
-            Self::Effort
-        } else {
-            Self::Model
-        }
+    pub fn step(self, delta: isize) -> Self {
+        let fields = [Self::Provider, Self::Model, Self::Effort];
+        fields[(self as isize + delta).rem_euclid(fields.len() as isize) as usize]
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -60,6 +58,7 @@ pub(super) enum ReviewAction {
 pub(super) enum Modal {
     None,
     Run,
+    Assess,
     Picker,
     Help,
 }
@@ -106,7 +105,7 @@ impl App {
             tab: DetailTab::Overview,
             scroll: None,
             modal: Modal::None,
-            field: FormField::Model,
+            field: FormField::Provider,
             notice: String::new(),
         };
         app.load_context()?;
@@ -169,7 +168,7 @@ impl App {
             self.notice = "Run finished. Open its code or preview to review it.".into();
         }
         if self.runtime.poll_assessment()?.is_some() {
-            self.notice = "Codex assessment finished. Open Overview to read it.".into();
+            self.notice = "Agent assessment finished. Open Overview to read it.".into();
         }
         self.tasks.replace(self.runtime.task_views()?);
         self.picker.replace(self.tasks.items.clone());
@@ -210,10 +209,15 @@ impl App {
         self.context_id = None;
         self.load_context()?;
         self.modal = Modal::Run;
-        self.field = FormField::Model;
+        self.field = FormField::Provider;
         Ok(())
     }
     pub(super) fn start(&mut self) -> Result<()> {
+        if self.modal == Modal::Assess {
+            self.start_assessment()?;
+            self.modal = Modal::None;
+            return Ok(());
+        }
         let task = self.focused_task().context("Select a task")?.to_owned();
         self.runtime.start(&task, self.settings.clone())?;
         self.modal = Modal::None;
@@ -279,6 +283,16 @@ impl App {
     }
     pub(super) fn assess(&mut self) -> Result<()> {
         ensure!(self.selection.comparing, "Select two tasks first");
+        ensure!(
+            !self.runtime.is_busy(),
+            "Wait for the active operation or press C to cancel it"
+        );
+        self.modal = Modal::Assess;
+        self.field = FormField::Provider;
+        Ok(())
+    }
+    fn start_assessment(&mut self) -> Result<()> {
+        ensure!(self.selection.comparing, "Select two tasks first");
         let pair = self
             .selection
             .pair
@@ -287,7 +301,7 @@ impl App {
         self.runtime
             .start_assessment(&pair.reference, &pair.other, self.settings.clone())?;
         self.tab = DetailTab::Overview;
-        self.notice = "Codex is assessing saved evidence. Usage is recorded separately.".into();
+        self.notice = "The agent is assessing saved evidence. Usage is recorded separately.".into();
         Ok(())
     }
     pub(super) fn lines(&self, width: u16) -> Vec<ratatui::text::Line<'static>> {

@@ -107,6 +107,7 @@ impl Journal {
         for observation in observations {
             self.report.observe(observation);
         }
+        self.report.estimate_cost_from_totals();
         self.save()
     }
 

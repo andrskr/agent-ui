@@ -95,7 +95,7 @@ impl Store {
     pub fn load(&self, id: &str) -> Result<Report> {
         let report: Report = serde_json::from_slice(&fs::read(self.dir(id)?.join("report.json"))?)?;
         ensure!(
-            report.schema_version == 1 && report.id == id,
+            report.schema_version == 2 && report.id == id,
             "Unknown report format or ID"
         );
         Ok(report)

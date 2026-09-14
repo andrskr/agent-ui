@@ -56,12 +56,20 @@ impl TokenDelta {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Measurements {
+    pub estimated_cost_usd: CostDelta,
     pub setup_seconds: TimeDelta,
     pub agent_seconds: TimeDelta,
     pub verification_seconds: TimeDelta,
     pub input_tokens: TokenDelta,
     pub cached_input_tokens: TokenDelta,
     pub output_tokens: TokenDelta,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CostDelta {
+    pub reference: Option<f64>,
+    pub other: Option<f64>,
+    pub difference: Option<f64>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -120,6 +128,11 @@ impl Comparison {
             },
         };
         let measurements = Measurements {
+            estimated_cost_usd: CostDelta {
+                reference: a.cost_usd,
+                other: b.cost_usd,
+                difference: a.cost_usd.zip(b.cost_usd).map(|(a, b)| b - a),
+            },
             setup_seconds: TimeDelta::new(
                 (a.state != crate::report::State::Preparing).then_some(a.setup_seconds),
                 (b.state != crate::report::State::Preparing).then_some(b.setup_seconds),

@@ -54,22 +54,10 @@ impl App {
             return Ok(false);
         }
         match self.modal {
-            Modal::Run => match key.code {
+            Modal::Run | Modal::Assess => match key.code {
                 KeyCode::Esc => self.modal = Modal::None,
-                KeyCode::Tab | KeyCode::BackTab => self.field = self.field.step(),
                 KeyCode::Enter => self.start()?,
-                KeyCode::Up | KeyCode::Left => self.adjust(-1),
-                KeyCode::Down | KeyCode::Right => self.adjust(1),
-                KeyCode::Backspace if self.field == FormField::Model => {
-                    self.settings.model.pop();
-                }
-                KeyCode::Char(c)
-                    if self.field == FormField::Model
-                        && (c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) =>
-                {
-                    self.settings.model.push(c)
-                }
-                _ => {}
+                key => self.field.select(key, &mut self.settings),
             },
             Modal::Help => {
                 if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
@@ -129,11 +117,6 @@ impl App {
         }
         Ok(false)
     }
-    fn adjust(&mut self, delta: isize) {
-        if self.field == FormField::Effort {
-            self.settings.effort = self.settings.effort.step(delta);
-        }
-    }
     pub(super) fn mouse(&mut self, mouse: event::MouseEvent, area: Rect) -> Result<()> {
         let position = Position::new(mouse.column, mouse.row);
         let panels = regions(area).1;
@@ -159,25 +142,28 @@ impl App {
             MouseEventKind::Down(event::MouseButton::Left) => {}
             _ => return Ok(()),
         }
-        if self.modal == Modal::Run {
+        if matches!(self.modal, Modal::Run | Modal::Assess) {
             let rect = modal_rect(area);
             if modal_submit(rect).contains(position) {
                 self.start()?;
             }
-            for i in 0..2 {
+            for i in 0..3 {
                 let field = modal_field(rect, i);
                 if field.contains(position) {
-                    self.field = if i == 0 {
-                        FormField::Model
-                    } else {
-                        FormField::Effort
+                    self.field = match i {
+                        0 => FormField::Provider,
+                        1 => FormField::Model,
+                        _ => FormField::Effort,
                     };
-                    if i == 1 {
-                        self.adjust(if position.x >= field.right() - 2 {
-                            1
-                        } else {
-                            -1
-                        });
+                    if position.x >= field.right() - 4 {
+                        self.field.adjust(
+                            &mut self.settings,
+                            if position.x >= field.right() - 2 {
+                                1
+                            } else {
+                                -1
+                            },
+                        );
                     }
                 }
             }
@@ -233,5 +219,24 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+impl FormField {
+    pub(super) fn select(&mut self, key: KeyCode, settings: &mut crate::settings::Settings) {
+        match key {
+            KeyCode::Up | KeyCode::BackTab => *self = self.step(-1),
+            KeyCode::Down | KeyCode::Tab => *self = self.step(1),
+            KeyCode::Left => self.adjust(settings, -1),
+            KeyCode::Right => self.adjust(settings, 1),
+            _ => {}
+        }
+    }
+    fn adjust(self, settings: &mut crate::settings::Settings, delta: isize) {
+        match self {
+            Self::Provider => settings.step_provider(delta),
+            Self::Model => settings.step_model(delta),
+            Self::Effort => settings.step_effort(delta),
+        }
     }
 }

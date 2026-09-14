@@ -1,7 +1,7 @@
 use agent_ui::{
-    codex::event::decode,
+    providers::codex::event::decode,
     report::{Check, Phase, Report, State},
-    settings::{Effort, Settings},
+    settings::Settings,
 };
 
 fn run() -> Report {
@@ -11,9 +11,10 @@ fn run() -> Report {
         "unused/app".into(),
         &Settings {
             model: "test".into(),
-            effort: Effort::Low,
+            effort: "low".into(),
             timeout: 10,
-            codex: None,
+            provider: "codex".into(),
+            binary: None,
         },
     )
 }

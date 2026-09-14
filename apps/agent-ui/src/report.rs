@@ -63,14 +63,14 @@ pub struct Report {
     pub schema_version: u32,
     pub id: String,
     pub task: String,
-    #[serde(default)]
     pub task_config: Option<crate::task::TaskConfig>,
     pub state: State,
     pub created_at_ms: u64,
     pub finished_at_ms: Option<u64>,
+    pub provider: String,
     pub model_requested: String,
     pub effort_requested: String,
-    pub codex_version: Option<String>,
+    pub provider_version: Option<String>,
     pub node_version: Option<String>,
     pub vp_version: Option<String>,
     pub runner_version: String,
@@ -86,7 +86,6 @@ pub struct Report {
     pub invalid_event_lines: u64,
     pub event_counts: BTreeMap<String, u64>,
     pub error: Option<String>,
-    #[serde(default)]
     pub warnings: Vec<String>,
     pub activity: Vec<Activity>,
     pub inputs: BTreeMap<String, String>,
@@ -96,6 +95,9 @@ pub struct Report {
     pub app: PathBuf,
     pub cost_usd: Option<f64>,
     pub cost_note: String,
+    pub cost_basis: Option<crate::cost::Basis>,
+    pub cost_models: Vec<String>,
+    pub cost_source: Option<String>,
     pub isolation: String,
 }
 impl Report {
@@ -165,7 +167,7 @@ impl Report {
         settings: &crate::settings::Settings,
     ) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             id,
             task,
             task_config: None,
@@ -174,7 +176,8 @@ impl Report {
             finished_at_ms: None,
             model_requested: settings.model.clone(),
             effort_requested: settings.effort.to_string(),
-            codex_version: None,
+            provider_version: None,
+            provider: settings.provider.clone(),
             node_version: None,
             vp_version: None,
             runner_version: env!("CARGO_PKG_VERSION").into(),
@@ -198,13 +201,13 @@ impl Report {
             changed_files: Vec::new(),
             app,
             cost_usd: None,
-            cost_note: "Subscription use. Codex does not report a per-run currency charge.".into(),
-            isolation: concat!(
-                "Fresh HOME and CODEX_HOME; explicit environment; workspace-write sandbox. ",
-                "This does not isolate host reads or shared account limits. ",
-                "Setup, verification, and preview run on the host."
-            )
-            .into(),
+            cost_note: "API cost unavailable: token usage is not reported.".into(),
+            cost_basis: None,
+            cost_models: Vec::new(),
+            cost_source: None,
+            isolation: crate::providers::descriptor(&settings.provider)
+                .map(|p| p.isolation.to_owned())
+                .unwrap_or_else(|_| "Unknown provider isolation".into()),
         }
     }
 
@@ -213,6 +216,40 @@ impl Report {
             at_ms: now(),
             text: text.into(),
         });
+    }
+
+    pub fn estimate_cost_from_totals(&mut self) {
+        self.apply_cost(crate::providers::estimate(
+            &self.provider,
+            &self.cost_input(),
+            None,
+        ));
+    }
+    pub(crate) fn cost_input(&self) -> crate::cost::Input<'_> {
+        crate::cost::Input {
+            model: &self.model_requested,
+            created_at_ms: self.created_at_ms,
+            usage: self.usage.as_ref(),
+            thread_id: self.thread_id.as_deref(),
+            saved: self.saved_cost(),
+        }
+    }
+    pub fn saved_cost(&self) -> Option<crate::cost::Estimate> {
+        Some(crate::cost::Estimate {
+            usd: self.cost_usd,
+            basis: self.cost_basis?,
+            models: self.cost_models.clone(),
+            source: self.cost_source.clone()?,
+            note: self.cost_note.clone(),
+        })
+    }
+
+    pub fn apply_cost(&mut self, estimate: crate::cost::Estimate) {
+        self.cost_usd = estimate.usd;
+        self.cost_note = estimate.note;
+        self.cost_basis = Some(estimate.basis);
+        self.cost_models = estimate.models;
+        self.cost_source = Some(estimate.source);
     }
 
     pub fn record_source_changes(&mut self, after: BTreeMap<String, String>) {
@@ -231,34 +268,46 @@ impl Report {
     pub fn check_agent_completion(&self) -> Result<()> {
         ensure!(
             self.completed_turns > 0,
-            "Codex exited without a completed turn"
+            "Agent exited without a completed turn"
         );
         ensure!(
             self.error.is_none(),
-            "Codex reported an error; see the event stream"
+            "Agent reported an error; see the event stream"
         );
         ensure!(
             self.invalid_event_lines == 0,
-            "Codex produced invalid JSON events"
+            "Agent produced invalid JSON events"
         );
         Ok(())
     }
 
     pub fn observe(&mut self, observation: crate::evidence::AgentObservation) {
-        use crate::evidence::{AgentObservation, AgentUpdate};
+        use crate::evidence::AgentObservation;
         let AgentObservation::Event { kind, update } = observation else {
             self.invalid_event_lines += 1;
             return;
         };
         *self.event_counts.entry(kind).or_default() += 1;
+        self.apply_update(update);
+    }
+
+    fn apply_update(&mut self, update: crate::evidence::AgentUpdate) {
+        use crate::evidence::AgentUpdate;
         match update {
+            AgentUpdate::Batch(updates) => {
+                for update in updates {
+                    self.apply_update(update);
+                }
+            }
+            AgentUpdate::UsageSnapshot(usage) => self.usage = usage,
+            AgentUpdate::Cost(estimate) => self.apply_cost(estimate),
             AgentUpdate::Thread(id) => self.thread_id = id,
             AgentUpdate::Turn(sample) => {
                 self.completed_turns += 1;
                 if let Some(sample) = sample {
                     self.usage.get_or_insert_default().add(&sample);
                 }
-                self.record("Codex completed a turn");
+                self.record("Agent completed a turn");
             }
             AgentUpdate::Failure(message) => {
                 self.error = Some(message.clone());
