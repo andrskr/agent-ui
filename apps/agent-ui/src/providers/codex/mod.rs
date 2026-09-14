@@ -187,37 +187,56 @@ fn resolve_binary(override_path: Option<&Path>) -> Result<PathBuf> {
     // Vite+ shims need the host home. Find the native Codex file before changing the child environment.
     if override_path.is_none() && codex.canonicalize()?.file_name().is_some_and(|n| n == "vp") {
         let packages = PathBuf::from(env::var("HOME")?).join(".vite-plus/packages/@openai/codex");
-        let mut candidates = vec![];
-        if packages.is_dir() {
-            for entry in fs::read_dir(packages)? {
-                let entry = entry?;
-                let modules = entry
-                    .path()
-                    .join("lib/node_modules/@openai/codex/node_modules/@openai");
-                if !modules.is_dir() {
-                    continue;
-                }
-                for package in fs::read_dir(modules)? {
-                    let vendor = package?.path().join("vendor");
-                    if !vendor.is_dir() {
-                        continue;
-                    }
-                    for arch in fs::read_dir(vendor)? {
-                        let path = arch?.path().join("bin/codex");
-                        if path.is_file() {
-                            candidates.push(path);
-                        }
-                    }
-                }
-            }
-        }
-        candidates.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
-        codex = candidates
-            .pop()
+        // Vite+ releases store the native file at different folder depths. Search the whole package
+        // tree and use the most recent match.
+        codex = newest_native_codex(&packages)
             .context("Cannot resolve the Codex shim. Pass --binary with the native binary path")?;
     }
     let codex = codex.canonicalize()?;
     Ok(codex)
+}
+/// Find the native Codex file below the Vite+ package folder. Return the most recent match.
+/// The folder depth changes between Vite+ releases, so this walks the full tree.
+fn newest_native_codex(packages: &Path) -> Option<PathBuf> {
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    let mut stack = vec![packages.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => stack.push(path),
+                Ok(kind) if kind.is_file() && is_native_codex(&path) => {
+                    let modified = fs::metadata(&path)
+                        .and_then(|meta| meta.modified())
+                        .unwrap_or(std::time::UNIX_EPOCH);
+                    if best.as_ref().is_none_or(|(seen, _)| modified >= *seen) {
+                        best = Some((modified, path));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    best.map(|(_, path)| path)
+}
+/// Report if the path is a native Codex file. It sits at `.../vendor/<arch>/bin/codex`.
+/// This rejects the Vite+ shim and the helper files next to the native file.
+fn is_native_codex(path: &Path) -> bool {
+    if path.file_name().is_none_or(|name| name != "codex") {
+        return false;
+    }
+    if path
+        .parent()
+        .and_then(Path::file_name)
+        .is_none_or(|name| name != "bin")
+    {
+        return false;
+    }
+    path.ancestors()
+        .any(|ancestor| ancestor.file_name().is_some_and(|name| name == "vendor"))
 }
 pub(crate) fn login(store: &Store, binary: &Path) -> Result<()> {
     let _lock = store.lock()?;
@@ -321,5 +340,31 @@ mod tests {
                 .iter()
                 .any(|a| a == "workspace-write" || a.contains("dangerously"))
         );
+    }
+    #[test]
+    fn native_codex_matches_the_vendor_file_at_any_depth() {
+        // Layout with no version folder.
+        assert!(is_native_codex(Path::new(
+            "/home/u/.vite-plus/packages/@openai/codex/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex"
+        )));
+        // Layout with a version folder.
+        assert!(is_native_codex(Path::new(
+            "/home/u/.vite-plus/packages/@openai/codex/0.1.13/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex"
+        )));
+    }
+    #[test]
+    fn native_codex_rejects_the_shim_and_helper_files() {
+        // The Vite+ shim has no vendor ancestor.
+        assert!(!is_native_codex(Path::new(
+            "/home/u/.vite-plus/packages/@openai/codex/bin/codex"
+        )));
+        // A helper file next to the native file has a different name.
+        assert!(!is_native_codex(Path::new(
+            "/home/u/.vite-plus/vendor/aarch64-apple-darwin/bin/codex-code-mode-host"
+        )));
+        // The bundled shell has a bin parent and a vendor ancestor but the wrong name.
+        assert!(!is_native_codex(Path::new(
+            "/home/u/.vite-plus/vendor/aarch64-apple-darwin/codex-resources/zsh/bin/zsh"
+        )));
     }
 }
