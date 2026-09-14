@@ -7,6 +7,7 @@ use super::{
 };
 use crate::{
     comparison::Comparison,
+    report::Report,
     task_result::{Selection, TaskDetails},
 };
 use ratatui::{prelude::*, widgets::*};
@@ -87,6 +88,68 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     );
     if frame.area().width >= 76 && frame.area().height >= 24 && app.modal != Modal::None {
         modal(frame, app);
+    }
+}
+fn focused_run<'a>(screen: &'a Screen<'a>) -> Option<&'a Report> {
+    let focus = if screen.selection.comparing {
+        screen.selection.pair.as_ref().map(|p| match screen.side {
+            Side::Reference => p.reference.as_str(),
+            Side::Other => p.other.as_str(),
+        })
+    } else {
+        screen.tasks.current().map(|t| t.id.as_str())
+    };
+    focus
+        .and_then(|id| screen.tasks.items.iter().find(|t| t.id == id))
+        .and_then(|t| t.run.as_ref())
+}
+fn elapsed_secs(run: &Report) -> f64 {
+    crate::report::now().saturating_sub(run.created_at_ms) as f64 / 1000.0
+}
+fn active_status(run: &Report) -> String {
+    let step = run
+        .step
+        .clone()
+        .unwrap_or_else(|| state_word(run.state).to_string());
+    format!(
+        "{} {} · {} · {:.1}s elapsed",
+        spinner_frame(),
+        state_word(run.state),
+        step,
+        elapsed_secs(run)
+    )
+}
+fn row_status(run: &Report) -> String {
+    format!(
+        "{} {} · {:.0}s",
+        spinner_frame(),
+        state_word(run.state),
+        elapsed_secs(run)
+    )
+}
+fn footer_status(screen: &Screen<'_>) -> Option<String> {
+    let active: Vec<&Report> = screen
+        .tasks
+        .items
+        .iter()
+        .filter_map(|t| t.run.as_ref())
+        .filter(|r| r.state.active())
+        .collect();
+    match active.as_slice() {
+        [] => None,
+        [run] => Some(active_status(run)),
+        many => {
+            let tasks = many
+                .iter()
+                .map(|r| format!("{} {:.0}s", r.task, elapsed_secs(r)))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            Some(format!(
+                "{} {} running · {tasks}",
+                spinner_frame(),
+                many.len()
+            ))
+        }
     }
 }
 pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
@@ -208,13 +271,13 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
                         text,
                     ),
                     1 => {
-                        let color = run
-                            .run
-                            .as_ref()
-                            .map(|r| state_color(r.state))
-                            .unwrap_or(MUTED);
+                        let (status, color) = match run.run.as_ref() {
+                            Some(r) if r.state.active() => (row_status(r), GOLD),
+                            Some(r) => (run.status().to_owned(), state_color(r.state)),
+                            None => (run.status().to_owned(), MUTED),
+                        };
                         frame.render_widget(
-                            Paragraph::new(fit(run.status(), text.width)).fg(color),
+                            Paragraph::new(fit(&status, text.width)).fg(color),
                             text,
                         );
                     }
@@ -247,7 +310,10 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
             detail_parts(panels[1])[3],
         );
     }
-    frame.render_widget(Paragraph::new(screen.notice).fg(MUTED), outer[2]);
+    match footer_status(screen) {
+        Some(status) => frame.render_widget(Paragraph::new(status).fg(GOLD), outer[2]),
+        None => frame.render_widget(Paragraph::new(screen.notice).fg(MUTED), outer[2]),
+    }
     let footer = if screen.searching {
         " Type to search   Enter Apply   Esc Clear".into()
     } else if screen.selection.comparing {
@@ -281,17 +347,7 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
 }
 fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>) {
     let parts = detail_parts(area);
-    let focus = if screen.selection.comparing {
-        screen.selection.pair.as_ref().map(|p| match screen.side {
-            Side::Reference => p.reference.as_str(),
-            Side::Other => p.other.as_str(),
-        })
-    } else {
-        screen.tasks.current().map(|t| t.id.as_str())
-    };
-    let run = focus
-        .and_then(|id| screen.tasks.items.iter().find(|t| t.id == id))
-        .and_then(|t| t.run.as_ref());
+    let run = focused_run(screen);
     if screen.selection.comparing
         && let Some(pair) = &screen.selection.pair
     {
@@ -326,7 +382,7 @@ fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>) {
             Rect::new(parts[1].x + i as u16 * 12, parts[1].y, 11, 1),
         );
     }
-    if let Some(run) = run {
+    if let Some(run) = run.filter(|r| !r.state.active()) {
         let preview = screen.preview.as_ref().filter(|p| p.id == run.id);
         let actions = action_areas(parts[2]);
         button(
@@ -480,7 +536,7 @@ fn modal(frame: &mut Frame, app: &App) {
             );
         }
         _ => {
-            let text = "↑↓ / j k     Select task\nTab / 1 2 3  Overview / Activity / Evidence\nc            Choose another task for comparison\nv / s        Select side / Swap comparison sides\nEsc          Leave comparison\nn            Run task; removes its previous output\nm            Ask agent to assess the current pair\nb / x        Open / Stop this task's preview\ne / r / a / f Code / JSON / Agent note / Evidence\nC            Cancel active work\n/            Search tasks\nPgUp / PgDn  Scroll\nq / Ctrl+C   Quit and stop owned processes\n\nEach task keeps only its most recent run.\nEsc Back";
+            let text = "↑↓ / j k     Select task\nTab / 1 2 3  Overview / Activity / Evidence\nc            Choose another task for comparison\nv / s        Select side / Swap comparison sides\nEsc          Leave comparison\nn            Run task; removes its previous output\nm            Ask agent to assess the current pair\nb / x        Open / Stop this task's preview\ne / r / a / f Code / JSON / Agent note / Evidence\nC            Cancel this task's run\n/            Search tasks\nPgUp / PgDn  Scroll\nq / Ctrl+C   Quit and stop owned processes\n\nEach task keeps only its most recent run.\nEsc Back";
             frame.render_widget(
                 Paragraph::new(text).wrap(Wrap { trim: false }),
                 area.inner(Margin::new(4, 2)),

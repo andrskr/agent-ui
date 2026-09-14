@@ -123,6 +123,76 @@ fn replacing_a_run_keeps_task_selection_and_includes_tasks_without_runs() {
     );
 }
 #[test]
+fn active_run_shows_a_live_status_with_step_and_elapsed() {
+    let settings = Settings {
+        model: "gpt-5.6-luna".into(),
+        effort: "low".into(),
+        timeout: 60,
+        provider: "codex".into(),
+        binary: None,
+    };
+    let mut run = Report::new("live".into(), "bare".into(), "unused/app".into(), &settings);
+    run.created_at_ms = crate::report::now().saturating_sub(5_000);
+    run.step = Some("Installing packages".into());
+    run.record("Copied the starter and task inputs");
+
+    let text = content_lines(&run, DetailTab::Activity, "", 100)
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Copied the starter and task inputs"));
+    assert!(text.contains("Installing packages"));
+    assert!(text.contains("Preparing"));
+    assert!(text.contains("elapsed"));
+
+    let mut items = tasks().items.clone();
+    items.iter_mut().find(|t| t.id == "bare").unwrap().run = Some(run);
+    let mut tasks = Tasks::default();
+    tasks.replace(items);
+    tasks.select_id("bare");
+    let selection = Selection::default();
+    let mut screen = screen(&tasks, &selection);
+    screen.tab = DetailTab::Activity;
+    screen.active = true;
+    let output = render(&screen, 120, 40);
+    assert!(output.contains("Installing packages"));
+    assert!(!output.contains("b Preview"));
+}
+#[test]
+fn two_active_runs_show_an_aggregate_footer_with_each_task() {
+    let settings = Settings {
+        model: "gpt-5.6-luna".into(),
+        effort: "low".into(),
+        timeout: 60,
+        provider: "codex".into(),
+        binary: None,
+    };
+    let mut items = tasks().items.clone();
+    for id in ["bare", "guided"] {
+        let mut run = Report::new(id.into(), id.into(), "unused/app".into(), &settings);
+        run.state = State::Running;
+        run.created_at_ms = crate::report::now().saturating_sub(3_000);
+        run.step = Some("Running the agent".into());
+        items.iter_mut().find(|t| t.id == id).unwrap().run = Some(run);
+    }
+    let mut tasks = Tasks::default();
+    tasks.replace(items);
+    tasks.select_id("bare");
+    let selection = Selection::default();
+    let mut screen = screen(&tasks, &selection);
+    screen.active = true;
+    let output = render(&screen, 120, 40);
+    assert!(output.contains("2 running"));
+    assert!(output.contains("bare"));
+    assert!(output.contains("guided"));
+}
+#[test]
 fn search_filters_tasks_and_handles_no_matches() {
     let mut tasks = tasks();
     tasks.set_query("EMPTY not run".into());

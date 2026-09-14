@@ -21,13 +21,16 @@ use std::{
     process::Command,
 };
 
+const MAX_CONCURRENT_RUNS: usize = 4;
+
 /// Owns live runs and previews. Both user interfaces call this service.
 pub struct Application {
     project: Project,
     store: Store,
-    active: Option<Active>,
+    active: BTreeMap<String, Active>,
     previews: BTreeMap<String, Preview>,
     assessment: Option<crate::worker::Worker<crate::assessment::Assessment>>,
+    _lock: File,
 }
 
 pub struct PreviewInfo<'a> {
@@ -45,12 +48,16 @@ impl Application {
             "Run storage must be outside the repository"
         );
         store.recover()?;
+        let lock = store
+            .lock()
+            .context("Another Agent UI instance is using this run storage")?;
         Ok(Self {
             project,
             store,
-            active: None,
+            active: BTreeMap::new(),
             previews: BTreeMap::new(),
             assessment: None,
+            _lock: lock,
         })
     }
     pub fn project(&self) -> &Path {
@@ -100,7 +107,13 @@ impl Application {
         self.store.save_selection(selection)
     }
     pub fn is_busy(&self) -> bool {
-        self.active.is_some() || self.assessment.is_some()
+        !self.active.is_empty() || self.assessment.is_some()
+    }
+    pub fn is_running(&self, task: &str) -> bool {
+        self.active.contains_key(task)
+    }
+    pub fn active_runs(&self) -> usize {
+        self.active.len()
     }
     pub fn compare(&self, reference: &str, other: &str) -> Result<Comparison> {
         Comparison::new(self.report(reference)?, self.report(other)?)
@@ -175,41 +188,70 @@ impl Application {
     }
 
     pub fn start(&mut self, task: &str, settings: Settings) -> Result<String> {
-        ensure!(!self.is_busy(), "An operation is already active");
         settings.validate()?;
+        ensure!(
+            self.assessment.is_none(),
+            "Wait for the assessment to finish"
+        );
+        ensure!(
+            !self.active.contains_key(task),
+            "This task is already running"
+        );
+        ensure!(
+            self.active.len() < MAX_CONCURRENT_RUNS,
+            "{MAX_CONCURRENT_RUNS} runs are already active. Wait for one to finish"
+        );
         let source = self.project.task(task)?;
-        let tools = Tools::discover(&settings)?;
-        let lock = self.store.lock()?;
-        providers::get(&settings.provider)?.preflight(&self.store, &tools.agent)?;
         self.stop_preview(task);
-        let active = runner::start(self.store.clone(), source, settings, tools, lock)?;
+        let active = runner::start(self.store.clone(), source, settings)?;
         let id = active.id.clone();
-        self.active = Some(active);
+        self.active.insert(task.to_string(), active);
         Ok(id)
     }
     pub fn cancellation(&self) -> Option<Cancel> {
-        self.active
+        self.assessment
             .as_ref()
-            .map(Active::cancellation)
-            .or_else(|| self.assessment.as_ref().map(|a| a.cancellation()))
+            .map(|a| a.cancellation())
+            .or_else(|| {
+                (self.active.len() == 1)
+                    .then(|| self.active.values().next().map(Active::cancellation))
+                    .flatten()
+            })
     }
     pub fn cancel(&self) {
         if let Some(assessment) = &self.assessment {
             assessment.cancel();
         }
-        if let Some(active) = &self.active {
+        for active in self.active.values() {
             active.cancel();
         }
     }
-    pub fn join(&mut self) -> Result<Report> {
-        self.active.take().context("No active run")?.join()
-    }
-    pub fn poll_run(&mut self) -> Result<Option<Report>> {
-        if self.active.as_ref().is_some_and(Active::finished) {
-            self.join().map(Some)
-        } else {
-            Ok(None)
+    pub fn cancel_task(&self, task: &str) -> bool {
+        match self.active.get(task) {
+            Some(active) => {
+                active.cancel();
+                true
+            }
+            None => false,
         }
+    }
+    pub fn join(&mut self, task: &str) -> Result<Report> {
+        self.active
+            .remove(task)
+            .context("No active run for this task")?
+            .join()
+    }
+    pub fn poll_run(&mut self) -> Result<Vec<(String, Report)>> {
+        let finished: Vec<String> = self
+            .active
+            .iter()
+            .filter(|(_, active)| active.finished())
+            .map(|(task, _)| task.clone())
+            .collect();
+        finished
+            .into_iter()
+            .map(|task| Ok((task.clone(), self.join(&task)?)))
+            .collect()
     }
 
     pub fn preview(&self, task: &str) -> Option<PreviewInfo<'_>> {

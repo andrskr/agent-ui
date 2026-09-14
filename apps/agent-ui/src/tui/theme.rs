@@ -20,14 +20,18 @@ pub(super) fn state_color(state: State) -> Color {
         _ => GOLD,
     }
 }
-pub(super) fn state_label(state: State) -> &'static str {
+pub(super) fn state_word(state: State) -> &'static str {
     match state {
-        State::Preparing => "◌ Preparing",
-        State::Running => "◌ Running",
-        State::Verifying => "◌ Verifying",
-        State::Ready => "● Ready",
-        State::Failed => "× Failed",
-        State::Cancelled => "− Cancelled",
-        State::Interrupted => "! Interrupted",
+        State::Preparing => "Preparing",
+        State::Running => "Running",
+        State::Verifying => "Verifying",
+        State::Ready => "Ready",
+        State::Failed => "Failed",
+        State::Cancelled => "Cancelled",
+        State::Interrupted => "Interrupted",
     }
+}
+pub(super) fn spinner_frame() -> char {
+    const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    FRAMES[((crate::report::now() / 80) % 10) as usize]
 }

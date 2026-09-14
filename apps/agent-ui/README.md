@@ -94,10 +94,10 @@ Use `--project <folder>` when you start outside this repository. Use `--data-dir
 a different storage location. It must be outside the repository.
 
 Building the app needs Cargo. Opening the built UI and inspecting saved runs does not need a
-provider CLI, Node, Vite+, Git, or ripgrep. Starting a run resolves these tools before creating run
-files. It uses the ripgrep bundled with Codex when available, then checks PATH. Preview needs Vite+
-only. The app currently targets macOS. The editor action uses Visual Studio Code. Browser actions
-use the default browser. Run `vp run agent-ui doctor` to check the local paths. Use
+provider CLI, Node, Vite+, Git, or ripgrep. A run resolves these tools during setup, in the
+background. It uses the ripgrep bundled with Codex when available, then checks PATH. Preview needs
+Vite+ only. The app currently targets macOS. The editor action uses Visual Studio Code. Browser
+actions use the default browser. Run `vp run agent-ui doctor` to check the local paths. Use
 `--binary <native-binary>` if the app cannot resolve the selected provider launcher. Optional
 `task.toml` files set task packages.
 
@@ -107,11 +107,11 @@ The sidebar lists tasks. Each task keeps one run. Select a task to see its lates
 prompt if it has no result. Press `n` to start it. The Run form lets you select provider, model, and
 effort.
 
-Starting a run removes that task's previous code, logs, and reports. The app first validates inputs,
-settings, tools, and provider login. It then takes the execution lock and stops that task's owned
-preview. It removes any assessment that uses the old run. It deletes the old output before it
-creates the new run. A failed or cancelled new run remains the current result. There is no rollback
-or run history.
+Starting a run removes that task's previous code, logs, and reports. The app validates settings,
+then starts the run in the background. The run stops that task's owned preview, removes any
+assessment that uses the old run, and deletes the old output before it creates the new run. It then
+checks tools and provider sign-in. A failed or cancelled new run remains the current result, and a
+sign-in or tool failure is saved as a failed run. There is no rollback or run history.
 
 If removal fails, the app shows `Cleanup blocked`. No new run starts. Restart the app or run that
 task again to retry cleanup. A preview owned by another process blocks removal. Stop that preview
@@ -334,9 +334,11 @@ observed usage must also agree with final usage. Interrupted streams can show pa
 
 Cancellation stops the owned process group. Quitting stops active work and all owned previews.
 Reports remain on disk. On restart, an unfinished report without an active storage lock is marked
-`interrupted`. Runs do not resume automatically. Only one run or assessment executes per storage
-location. Each preview uses a separate local port and stops when its owning app or CLI command
-closes. A new run removes only the previous output for its task and any assessment that uses it.
+`interrupted`. Runs do not resume automatically. Up to four task runs execute at once, one run per
+task. An assessment does not run while any task run is active. One app instance uses a storage
+location at a time. Each preview uses a separate local port and stops when its owning app or CLI
+command closes. A new run removes only the previous output for its task and any assessment that uses
+it.
 
 Codex gets a fresh HOME and CODEX_HOME, an explicit environment, disabled external integrations, and
 the workspace-write sandbox. The app copies the existing file-based ChatGPT login into private

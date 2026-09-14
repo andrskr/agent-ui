@@ -9,11 +9,13 @@ use std::{
     io::Write,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 #[derive(Clone)]
 pub(crate) struct Store {
     root: PathBuf,
+    index_lock: Arc<Mutex<()>>,
 }
 
 /// One owner for the public paths of a saved run.
@@ -79,7 +81,10 @@ impl Store {
         let root = root.canonicalize()?;
         private_dir(&root.join("runs"))?;
         private_dir(&root.join("private"))?;
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            index_lock: Arc::new(Mutex::new(())),
+        })
     }
     pub fn dir(&self, id: &str) -> Result<PathBuf> {
         valid_id(id)?;
@@ -153,8 +158,10 @@ impl Store {
         }
         Ok(())
     }
-    /// The caller holds the execution lock until the new worker ends.
+    /// Concurrent runs write the shared index, so serialize it in this process. The lifetime file
+    /// lock keeps other processes out.
     pub fn replace(&self, report: &Report) -> Result<()> {
+        let _guard = self.index_lock.lock().unwrap_or_else(|e| e.into_inner());
         self.clear_task(&report.task)?;
         let mut index = self.index()?;
         fs::create_dir(self.dir(&report.id)?)?;

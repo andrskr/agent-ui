@@ -163,9 +163,14 @@ impl App {
         Ok(())
     }
     pub(super) fn refresh(&mut self) -> Result<()> {
-        if self.runtime.poll_run()?.is_some() {
+        let finished = self.runtime.poll_run()?;
+        if let Some((task, _)) = finished.first() {
             self.context_id = None;
-            self.notice = "Run finished. Open its code or preview to review it.".into();
+            self.notice = if finished.len() == 1 {
+                format!("Run finished for {task}. Open its code or preview to review it.")
+            } else {
+                format!("{} runs finished.", finished.len())
+            };
         }
         if self.runtime.poll_assessment()?.is_some() {
             self.notice = "Agent assessment finished. Open Overview to read it.".into();
@@ -201,11 +206,11 @@ impl App {
         self.load_context()
     }
     pub(super) fn new_run(&mut self) -> Result<()> {
+        let task = self.focused_task().context("Select a task")?;
         ensure!(
-            !self.runtime.is_busy(),
-            "Wait for the active operation or press C to cancel it"
+            !self.runtime.is_running(task),
+            "This task is already running"
         );
-        self.focused_task().context("Select a task")?;
         self.context_id = None;
         self.load_context()?;
         self.modal = Modal::Run;
@@ -223,7 +228,7 @@ impl App {
         self.modal = Modal::None;
         self.tab = DetailTab::Activity;
         self.scroll = None;
-        self.notice.clear();
+        self.notice = "Starting the run…".into();
         self.refresh()
     }
     pub(super) fn choose_comparison(&mut self) -> Result<()> {

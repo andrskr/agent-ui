@@ -100,10 +100,15 @@ impl App {
                     self.load_context()?;
                 }
                 KeyCode::Char('m') => self.assess()?,
-                KeyCode::Char('C') => {
-                    self.runtime.cancel();
-                    self.notice = "Stopping the active operation...".into();
-                }
+                KeyCode::Char('C') => match self.focused_task().map(str::to_owned) {
+                    Some(task) if self.runtime.cancel_task(&task) => {
+                        self.notice = format!("Stopping {task}…");
+                    }
+                    _ => {
+                        self.runtime.cancel();
+                        self.notice = "Stopping the active operation…".into();
+                    }
+                },
                 KeyCode::Char('?') => self.modal = Modal::Help,
                 KeyCode::Char('x') => self.stop_preview(),
                 KeyCode::Char('b') => self.review(ReviewAction::Preview)?,

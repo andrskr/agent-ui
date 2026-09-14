@@ -147,6 +147,8 @@ Manual checks use an external project and output folder. They check locks, delet
 package installation, real provider use, TUI input, browser rendering, and process shutdown.
 Compilation and package tooling still write normal build output and caches.
 
-The app has one active operation per storage location. It has no job queue, event database, plugin
+The app runs up to four task runs at once per storage location, one run per task, and holds the
+storage lock for its lifetime, so only one app instance uses a storage location at a time. An
+assessment does not run while any task run is active. It has no job queue, event database, plugin
 loader, or migration layer. Configuration separation does not provide full host isolation. Evidence
 can contain task text and paths. An agent code assessment cannot approve visual quality.

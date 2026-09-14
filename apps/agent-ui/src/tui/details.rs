@@ -28,6 +28,21 @@ fn duration(seconds: Option<f64>) -> String {
         })
         .unwrap_or_else(|| "—".into())
 }
+fn active_status_line(run: &Report) -> Line<'static> {
+    let elapsed = now().saturating_sub(run.created_at_ms) as f64 / 1000.0;
+    let step = run
+        .step
+        .clone()
+        .unwrap_or_else(|| state_word(run.state).to_string());
+    Line::from(format!(
+        "{} {} · {} · {} elapsed",
+        spinner_frame(),
+        state_word(run.state),
+        step,
+        duration(Some(elapsed)),
+    ))
+    .fg(GOLD)
+}
 fn pair(label: &str, value: &str, width: u16) -> Line<'static> {
     let gap = usize::from(width)
         .saturating_sub(label.len() + value.len())
@@ -66,6 +81,10 @@ pub(super) fn content_lines(
             if lines.is_empty() {
                 lines.push(Line::from("No activity recorded.").fg(MUTED));
             }
+            if run.state.active() {
+                lines.push(Line::default());
+                lines.push(active_status_line(run));
+            }
             lines
         }
         DetailTab::Evidence => {
@@ -99,15 +118,7 @@ pub(super) fn overview_lines(run: &Report, note: &str, width: u16) -> Vec<Line<'
         );
         lines.push(Line::default());
     } else if run.state.active() {
-        let elapsed = now().saturating_sub(run.created_at_ms) as f64 / 1000.0;
-        lines.push(
-            Line::from(format!(
-                "{} · {} elapsed",
-                state_label(run.state),
-                duration(Some(elapsed))
-            ))
-            .fg(GOLD),
-        );
+        lines.push(active_status_line(run));
         lines.push(Line::default());
     }
     let usage = run.usage.as_ref();

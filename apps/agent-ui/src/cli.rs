@@ -206,7 +206,7 @@ pub fn run() -> Result<()> {
                 .context("Run did not start")?
                 .install_signal_handler()?;
             eprintln!("Run {}\n{}", id, runtime.run_path(&id)?.display());
-            let report = runtime.join()?;
+            let report = runtime.join(&task)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             ensure!(
                 report.state == crate::report::State::Ready,

@@ -65,6 +65,8 @@ pub struct Report {
     pub task: String,
     pub task_config: Option<crate::task::TaskConfig>,
     pub state: State,
+    #[serde(default)]
+    pub step: Option<String>,
     pub created_at_ms: u64,
     pub finished_at_ms: Option<u64>,
     pub provider: String,
@@ -148,6 +150,7 @@ impl Report {
             );
             self.state = State::Ready;
         }
+        self.step = None;
         self.finished_at_ms = Some(now());
         Ok(())
     }
@@ -155,6 +158,7 @@ impl Report {
     pub fn interrupt(&mut self) {
         if self.state.active() {
             self.state = State::Interrupted;
+            self.step = None;
             self.finished_at_ms = Some(now());
             self.error = Some("The runner stopped before it saved a final result".into());
             self.record("Recovered an interrupted run");
@@ -172,6 +176,7 @@ impl Report {
             task,
             task_config: None,
             state: State::Preparing,
+            step: None,
             created_at_ms: now(),
             finished_at_ms: None,
             model_requested: settings.model.clone(),

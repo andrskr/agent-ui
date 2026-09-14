@@ -133,7 +133,7 @@ impl PreparedWorkspace {
                 config.dev_dependencies.len()
             ));
         }
-        journal.save()?;
+        journal.step("Installing packages")?;
         let mut install = Command::new(&tools.vp);
         install
             .current_dir(files.app())
@@ -188,6 +188,7 @@ impl PreparedWorkspace {
 
     pub fn verify(&self, journal: &mut Journal, tools: &Tools) -> Result<()> {
         journal.report.record("Verification started");
+        journal.mark("Verifying the result")?;
         let mut command = Command::new(&tools.vp);
         command
             .current_dir(&self.app)

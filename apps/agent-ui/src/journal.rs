@@ -39,6 +39,19 @@ impl Journal {
         self.store.save(&self.report)
     }
 
+    pub fn step(&mut self, text: &str) -> Result<()> {
+        self.report.record(text);
+        self.report.step = Some(text.to_string());
+        self.update_time();
+        self.save()
+    }
+
+    pub fn mark(&mut self, text: &str) -> Result<()> {
+        self.report.step = Some(text.to_string());
+        self.update_time();
+        self.save()
+    }
+
     pub fn measure<T>(
         &mut self,
         phase: Phase,
@@ -104,8 +117,13 @@ impl Journal {
         observations: impl IntoIterator<Item = crate::evidence::AgentObservation>,
     ) -> Result<()> {
         self.report.agent_seconds = Some(seconds);
+        let mut responded = false;
         for observation in observations {
             self.report.observe(observation);
+            responded = true;
+        }
+        if responded {
+            self.report.step = Some("Running the agent".to_string());
         }
         self.report.estimate_cost_from_totals();
         self.save()
