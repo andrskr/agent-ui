@@ -85,6 +85,7 @@ fn screen<'a>(tasks: &'a Tasks, selection: &'a Selection) -> Screen<'a> {
         comparison: None,
         assessment: "",
         details: None,
+        starting: Vec::new(),
     }
 }
 fn render(screen: &Screen<'_>, width: u16, height: u16) -> String {
@@ -163,6 +164,19 @@ fn active_run_shows_a_live_status_with_step_and_elapsed() {
     let output = render(&screen, 120, 40);
     assert!(output.contains("Installing packages"));
     assert!(!output.contains("b Preview"));
+}
+#[test]
+fn a_starting_task_shows_a_starting_placeholder_before_the_report_exists() {
+    let mut tasks = tasks();
+    tasks.select_id("empty");
+    let selection = Selection::default();
+    let mut screen = screen(&tasks, &selection);
+    screen.active = true;
+    screen.starting = vec!["empty".into()];
+    let output = render(&screen, 120, 40);
+    assert!(output.contains("Starting…"));
+    assert!(!output.contains("No current run for this task."));
+    assert!(!output.contains("n Run this task"));
 }
 #[test]
 fn two_active_runs_show_an_aggregate_footer_with_each_task() {

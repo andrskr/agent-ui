@@ -2,6 +2,19 @@ use super::{state::DetailTab, theme::*};
 use crate::report::{Report, State, now};
 use ratatui::prelude::*;
 
+const DURATION_LABEL: usize = 13;
+const DURATION_VALUE: usize = 7;
+const TOKEN_LABEL: usize = 8;
+const TOKEN_VALUE: usize = 12;
+const COLUMN_GAP: usize = 3;
+
+fn pad(text: &str, width: usize) -> String {
+    format!("{text:<width$}")
+}
+fn rpad(text: &str, width: usize) -> String {
+    format!("{text:>width$}")
+}
+
 fn number(n: Option<u64>) -> String {
     let Some(n) = n else {
         return "Not reported".into();
@@ -117,9 +130,6 @@ pub(super) fn overview_lines(run: &Report, note: &str, width: u16) -> Vec<Line<'
                 .map(|line| Line::from(line.to_owned()).fg(RED)),
         );
         lines.push(Line::default());
-    } else if run.state.active() {
-        lines.push(active_status_line(run));
-        lines.push(Line::default());
     }
     let usage = run.usage.as_ref();
     lines.push(pair(
@@ -146,14 +156,7 @@ pub(super) fn overview_lines(run: &Report, note: &str, width: u16) -> Vec<Line<'
     lines.push(Line::from(cost_note.to_owned()).fg(MUTED));
     lines.push(Line::default());
     let times = [
-        (
-            "Setup",
-            if run.state == State::Preparing {
-                "In progress".into()
-            } else {
-                duration(Some(run.setup_seconds))
-            },
-        ),
+        ("Setup", duration(Some(run.setup_seconds))),
         ("Agent", duration(run.agent_seconds)),
         (
             "Verification",
@@ -162,45 +165,52 @@ pub(super) fn overview_lines(run: &Report, note: &str, width: u16) -> Vec<Line<'
     ];
     let tokens = [
         ("Input", number(usage.map(|u| u.input_tokens))),
-        ("  Cached", number(usage.map(|u| u.cached_input_tokens))),
+        ("Cached", number(usage.map(|u| u.cached_input_tokens))),
         ("Output", number(usage.map(|u| u.output_tokens))),
     ];
-    if width >= 64 {
-        let col = (width - 5) / 2;
-        let mut heading = Line::from(format!("{:<width$}", "Duration", width = col as usize));
-        heading.spans.push(Span::raw("     "));
-        heading.spans.push(Span::raw("Tokens"));
-        lines.push(heading.fg(TEXT).bold());
+    let indent = " ".repeat(DURATION_LABEL + DURATION_VALUE + COLUMN_GAP);
+    if usize::from(width)
+        >= DURATION_LABEL + DURATION_VALUE + COLUMN_GAP + TOKEN_LABEL + TOKEN_VALUE
+    {
+        lines.push(
+            Line::from(format!("{}Tokens", pad("Duration", indent.len())))
+                .fg(TEXT)
+                .bold(),
+        );
         lines.push(Line::default());
         for ((label, value), (token, count)) in times.iter().zip(&tokens) {
-            let mut line = pair(label, value, col);
-            line.spans.push(Span::raw("     "));
-            line.spans.extend(pair(token, count, col).spans);
-            lines.push(line);
+            lines.push(Line::from(format!(
+                "{}{}{}{}{}",
+                pad(label, DURATION_LABEL),
+                rpad(value, DURATION_VALUE),
+                " ".repeat(COLUMN_GAP),
+                pad(token, TOKEN_LABEL),
+                rpad(count, TOKEN_VALUE),
+            )));
         }
+        lines.push(Line::default());
+        lines.push(Line::from(format!("{indent}Cached tokens are part of input.")).fg(MUTED));
     } else {
         lines.push(Line::from("Duration").bold());
         for (label, value) in &times {
-            lines.push(pair(label, value, width));
+            lines.push(Line::from(format!(
+                "{}{}",
+                pad(label, DURATION_LABEL),
+                rpad(value, DURATION_VALUE)
+            )));
         }
         lines.push(Line::default());
         lines.push(Line::from("Tokens").bold());
-        for (label, value) in &tokens {
-            lines.push(pair(label, value, width));
+        for (label, count) in &tokens {
+            lines.push(Line::from(format!(
+                "{}{}",
+                pad(label, TOKEN_LABEL),
+                rpad(count, TOKEN_VALUE)
+            )));
         }
+        lines.push(Line::default());
+        lines.push(Line::from("Cached tokens are part of input.").fg(MUTED));
     }
-    lines.push(Line::default());
-    lines.push(
-        Line::from(format!(
-            "{}Cached tokens are part of input.",
-            if width >= 64 {
-                " ".repeat(usize::from((width - 5) / 2 + 5))
-            } else {
-                String::new()
-            }
-        ))
-        .fg(MUTED),
-    );
     section(&mut lines, width);
     let (check, color) = match &run.verification {
         Some(check) if check.exit_code == Some(0) => ("Passed", GREEN),

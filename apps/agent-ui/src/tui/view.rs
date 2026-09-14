@@ -60,6 +60,7 @@ pub(super) struct Screen<'a> {
     pub comparison: Option<&'a Comparison>,
     pub assessment: &'a str,
     pub details: Option<&'a TaskDetails>,
+    pub starting: Vec<String>,
 }
 pub(super) fn draw(frame: &mut Frame, app: &App) {
     draw_screen(
@@ -84,24 +85,30 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
             comparison: app.comparison.as_ref(),
             assessment: &app.assessment,
             details: app.details.as_ref(),
+            starting: app.runtime.active_task_ids(),
         },
     );
     if frame.area().width >= 76 && frame.area().height >= 24 && app.modal != Modal::None {
         modal(frame, app);
     }
 }
-fn focused_run<'a>(screen: &'a Screen<'a>) -> Option<&'a Report> {
-    let focus = if screen.selection.comparing {
+fn focus_id<'a>(screen: &'a Screen<'a>) -> Option<&'a str> {
+    if screen.selection.comparing {
         screen.selection.pair.as_ref().map(|p| match screen.side {
             Side::Reference => p.reference.as_str(),
             Side::Other => p.other.as_str(),
         })
     } else {
         screen.tasks.current().map(|t| t.id.as_str())
-    };
-    focus
+    }
+}
+fn focused_run<'a>(screen: &'a Screen<'a>) -> Option<&'a Report> {
+    focus_id(screen)
         .and_then(|id| screen.tasks.items.iter().find(|t| t.id == id))
         .and_then(|t| t.run.as_ref())
+}
+fn is_starting(screen: &Screen<'_>, id: &str, run: Option<&Report>) -> bool {
+    screen.starting.iter().any(|s| s == id) && run.is_none_or(|r| !r.state.active())
 }
 fn elapsed_secs(run: &Report) -> f64 {
     crate::report::now().saturating_sub(run.created_at_ms) as f64 / 1000.0
@@ -271,10 +278,14 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
                         text,
                     ),
                     1 => {
-                        let (status, color) = match run.run.as_ref() {
-                            Some(r) if r.state.active() => (row_status(r), GOLD),
-                            Some(r) => (run.status().to_owned(), state_color(r.state)),
-                            None => (run.status().to_owned(), MUTED),
+                        let (status, color) = if is_starting(screen, &run.id, run.run.as_ref()) {
+                            (format!("{} Starting…", spinner_frame()), GOLD)
+                        } else {
+                            match run.run.as_ref() {
+                                Some(r) if r.state.active() => (row_status(r), GOLD),
+                                Some(r) => (run.status().to_owned(), state_color(r.state)),
+                                None => (run.status().to_owned(), MUTED),
+                            }
                         };
                         frame.render_widget(
                             Paragraph::new(fit(&status, text.width)).fg(color),
@@ -319,12 +330,12 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
     } else if screen.selection.comparing {
         format!(
             " v Side  s Swap  c Change pair  m Ask agent  Esc Back{}",
-            if screen.active { "  C Cancel" } else { "" }
+            if screen.active { "  ⇧C Cancel" } else { "" }
         )
     } else {
         format!(
             " ↑↓ Task  Tab View  / Search  ? Help{}",
-            if screen.active { "  C Cancel" } else { "" }
+            if screen.active { "  ⇧C Cancel" } else { "" }
         )
     };
     frame.render_widget(
@@ -348,6 +359,7 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
 fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>) {
     let parts = detail_parts(area);
     let run = focused_run(screen);
+    let starting = focus_id(screen).is_some_and(|id| is_starting(screen, id, run));
     if screen.selection.comparing
         && let Some(pair) = &screen.selection.pair
     {
@@ -382,7 +394,7 @@ fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>) {
             Rect::new(parts[1].x + i as u16 * 12, parts[1].y, 11, 1),
         );
     }
-    if let Some(run) = run.filter(|r| !r.state.active()) {
+    if !starting && let Some(run) = run.filter(|r| !r.state.active()) {
         let preview = screen.preview.as_ref().filter(|p| p.id == run.id);
         let actions = action_areas(parts[2]);
         button(
@@ -400,19 +412,26 @@ fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>) {
             button(frame, actions[2], "x Stop", false);
         }
     }
-    let lines = screen_lines(
-        &super::details::Content {
-            task: screen.tasks.current(),
-            run,
-            comparison: screen.comparison,
-            comparing: screen.selection.comparing,
-            tab: screen.tab,
-            details: screen.details,
-            note: screen.note,
-            assessment: screen.assessment,
-        },
-        parts[3].width,
-    );
+    let lines = if starting {
+        vec![
+            Line::default(),
+            Line::from(format!("{} Starting the run…", spinner_frame())).fg(GOLD),
+        ]
+    } else {
+        screen_lines(
+            &super::details::Content {
+                task: screen.tasks.current(),
+                run,
+                comparison: screen.comparison,
+                comparing: screen.selection.comparing,
+                tab: screen.tab,
+                details: screen.details,
+                note: screen.note,
+                assessment: screen.assessment,
+            },
+            parts[3].width,
+        )
+    };
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     let last = paragraph
         .line_count(parts[3].width)
@@ -536,7 +555,7 @@ fn modal(frame: &mut Frame, app: &App) {
             );
         }
         _ => {
-            let text = "↑↓ / j k     Select task\nTab / 1 2 3  Overview / Activity / Evidence\nc            Choose another task for comparison\nv / s        Select side / Swap comparison sides\nEsc          Leave comparison\nn            Run task; removes its previous output\nm            Ask agent to assess the current pair\nb / x        Open / Stop this task's preview\ne / r / a / f Code / JSON / Agent note / Evidence\nC            Cancel this task's run\n/            Search tasks\nPgUp / PgDn  Scroll\nq / Ctrl+C   Quit and stop owned processes\n\nEach task keeps only its most recent run.\nEsc Back";
+            let text = "↑↓ / j k     Select task\nTab / 1 2 3  Overview / Activity / Evidence\nc            Choose another task for comparison\nv / s        Select side / Swap comparison sides\nEsc          Leave comparison\nn            Run task; removes its previous output\nm            Ask agent to assess the current pair\nb / x        Open / Stop this task's preview\ne / r / a / f Code / JSON / Agent note / Evidence\n⇧C           Cancel this task's run\n/            Search tasks\nPgUp / PgDn  Scroll\nq / Ctrl+C   Quit and stop owned processes\n\nEach task keeps only its most recent run.\nEsc Back";
             frame.render_widget(
                 Paragraph::new(text).wrap(Wrap { trim: false }),
                 area.inner(Margin::new(4, 2)),

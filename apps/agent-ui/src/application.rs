@@ -115,6 +115,9 @@ impl Application {
     pub fn active_runs(&self) -> usize {
         self.active.len()
     }
+    pub fn active_task_ids(&self) -> Vec<String> {
+        self.active.keys().cloned().collect()
+    }
     pub fn compare(&self, reference: &str, other: &str) -> Result<Comparison> {
         Comparison::new(self.report(reference)?, self.report(other)?)
     }
