@@ -10,7 +10,9 @@ variants from the same task group. There is no run history, approval state, or p
 | ------------------- | -------------------------------------------------------------------- |
 | `Project`           | Find tasks and validate source inputs before replacement.            |
 | `TaskId`            | Parse task names and enforce comparison groups in memory.            |
-| `TaskConfig`        | Parse TOML and transform package settings in memory.                 |
+| `TaskConfig`        | Parse task packages, setup profiles, and the repair requirement.     |
+| `SetupPlan`         | Resolve profile files, package conflicts, and named checks.          |
+| Repair controller   | Check source snapshots and record required in-pass check evidence.   |
 | `Application`       | Coordinate runs, assessments, and previews for both interfaces.      |
 | `Store`             | Own the task index, run files, locks, replacement, and recovery.     |
 | `Index`             | Enforce current and removing slots in memory.                        |
@@ -98,9 +100,9 @@ count as agent edits. The journal preserves measurements on errors. The runner a
 capture and final source inventory even if the agent fails.
 
 `Ready` needs a completed turn, valid events, no provider failure, agent exit code zero, and passed
-verification. Cancellation takes precedence over a successful process exit. Dropping a worker
-cancels and joins it. The process owner stops its child group. The session owner removes private
-session data after trace capture.
+verification. A repair task also needs a passing recorded check for its final source. Cancellation
+takes precedence over a successful process exit. Dropping a worker cancels and joins it. The process
+owner stops its child group. The session owner removes private session data after trace capture.
 
 ## Comparison and assessment
 
@@ -193,3 +195,39 @@ active members. Quitting drops the queue. It does not resume after restart. Ther
 database, plugin loader, or migration layer. Configuration separation does not provide full host
 isolation. Evidence can contain task text and paths. An agent code assessment cannot approve visual
 quality.
+
+## Declarative repair setup
+
+`Project` resolves selected profiles before run replacement. `SetupPlan` holds the profile manifest
+text and copied file bytes, so execution does not reread profile sources. `PreparedWorkspace`
+applies the plan, installs exact dependencies, and saves the resolved setup. The shared quality
+module owns root lint and format settings. The profile supplies a small Vite configuration that uses
+those settings with standalone source paths and the starter build configuration.
+
+The repair controller starts during setup. It makes a private dependency copy and runs a preflight
+check. During the Agent phase, the normal provider output poll also reads repair requests. The
+generated `vp run repair` client waits for a response through files in `.agent-ui`. Requests contain
+only an ID; they cannot select commands, paths, or environment variables. The controller executes
+the configured command vectors against a fresh source snapshot. It records results in memory and in
+evidence before returning diagnostics. Responses in the agent workspace are not pass evidence.
+
+Checks use macOS Seatbelt, an empty HOME, explicit tool paths, no network, and write access only to
+the check workspace and temporary directory. Installed dependencies stay read-only; Vite caches
+point into the private temporary directory. Unsupported platforms reject repair at validation. These
+checks are independent of provider-specific hooks and require no Git writes.
+
+Each request has one 300-second limit, capped by the remaining agent time. Cancellation reaches the
+check process group. Check failures return to the same agent process. The final check does not start
+another agent and cannot count as the required in-pass attempt. The last attempt must pass and match
+the complete final source inventory. Setup files outside `src/` and `public/` are fixed. A check
+cannot change source or configuration. The final verified build is copied to `app/dist`. The
+existing dev preview uses the final source.
+
+The controller excludes only its reserved IPC directory from source evidence, in addition to the
+existing dependency, build-output, and Git exclusions. Attempt times cover their command processes;
+they are already part of the Agent phase wall time. There is no separate repair token estimate.
+
+Manual acceptance checks must cover fresh setup, a deliberate lint/type/build failure, a corrected
+source, skipped repair, a stale pass, altered configuration, command timeout, and cancellation.
+Automated parser, policy, and lifecycle tests remain in memory. Provider sandbox integration needs a
+separate command-level or live check; fixture provider events are not model execution evidence.

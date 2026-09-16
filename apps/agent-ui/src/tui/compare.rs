@@ -210,6 +210,27 @@ fn measured_lines(c: &Comparison, width: u16) -> Vec<Line<'static>> {
                 None => "Verify not complete",
             }
         )));
+        if let Some(config) = &run.task_config {
+            if !config.setup.profiles.is_empty() {
+                lines.push(
+                    Line::from(format!(
+                        "{label} profiles: {}",
+                        config.setup.profiles.join(", ")
+                    ))
+                    .fg(MUTED),
+                );
+            }
+            if let Some(repair) = &config.repair {
+                lines.push(
+                    Line::from(format!(
+                        "{label} repair: {} · {} checks",
+                        repair.check,
+                        run.repair_attempts.len()
+                    ))
+                    .fg(MUTED),
+                );
+            }
+        }
         if let Some(error) = &run.error {
             lines.push(Line::from(safe_text(error)).fg(RED));
         }

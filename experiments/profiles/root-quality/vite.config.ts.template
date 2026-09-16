@@ -1,0 +1,6 @@
+import { defineConfig } from 'vite-plus';
+
+import { qualityConfig } from './tools/quality/config.ts';
+import base from './vite.base.ts';
+
+export default defineConfig({ ...base, ...qualityConfig('src') });

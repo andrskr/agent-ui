@@ -45,7 +45,7 @@ fn execute(source: TaskSource, settings: &Settings, journal: &mut Journal) -> Re
     let store = journal.store().clone();
     let evidence = journal.files.evidence();
     let note = journal.files.agent_report();
-    let (workspace, mut session, tools) = journal.measure(Phase::Setup, |journal| {
+    let (workspace, mut session, tools, mut repair) = journal.measure(Phase::Setup, |journal| {
         journal.step("Checking tools")?;
         let tools = Tools::discover(settings)?;
         journal.step("Checking sign-in")?;
@@ -56,6 +56,22 @@ fn execute(source: TaskSource, settings: &Settings, journal: &mut Journal) -> Re
         journal.report.node_version = Some(versions.node);
         journal.report.vp_version = Some(versions.vp);
         let workspace = PreparedWorkspace::prepare(source, journal, &tools)?;
+        let mut repair = workspace
+            .repair
+            .as_ref()
+            .map(|(name, definition)| {
+                crate::repair::Controller::prepare(
+                    &workspace.app,
+                    name,
+                    definition.clone(),
+                    &tools,
+                    journal,
+                )
+            })
+            .transpose()?;
+        if let Some(repair) = &mut repair {
+            repair.preflight(journal)?;
+        }
         journal.step("Resolving the agent")?;
         let request = Request {
             settings,
@@ -67,7 +83,7 @@ fn execute(source: TaskSource, settings: &Settings, journal: &mut Journal) -> Re
             read_roots: &[],
         };
         let session = provider.prepare(&store, &journal.report.id, &tools, &request)?;
-        Ok((workspace, session, tools))
+        Ok((workspace, session, tools, repair))
     })?;
     journal.measure(Phase::Agent, |journal| {
         journal.report.record("Agent started");
@@ -86,7 +102,17 @@ fn execute(source: TaskSource, settings: &Settings, journal: &mut Journal) -> Re
             &store,
             &request,
             &journal.cancellation(),
-            |observations, seconds| journal.agent_progress(seconds, observations),
+            |observations, seconds| {
+                journal.agent_progress(seconds, observations)?;
+                if let Some(repair) = &mut repair {
+                    repair.poll(
+                        journal,
+                        std::time::Duration::from_secs(settings.timeout)
+                            .saturating_sub(std::time::Duration::from_secs_f64(seconds)),
+                    )?;
+                }
+                Ok(())
+            },
         );
         let source = inventory(&workspace.app);
         if let Ok(after) = &source {
@@ -106,6 +132,10 @@ fn execute(source: TaskSource, settings: &Settings, journal: &mut Journal) -> Re
     })?;
     drop(session);
     journal.measure(Phase::Verification, |journal| {
-        workspace.verify(journal, &tools)
+        if let Some(repair) = &mut repair {
+            repair.verify(journal)
+        } else {
+            workspace.verify(journal, &tools)
+        }
     })
 }

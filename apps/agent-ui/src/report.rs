@@ -83,6 +83,8 @@ pub struct Report {
     pub agent_started_at_ms: Option<u64>,
     pub agent_exit_code: Option<i32>,
     pub verification: Option<Check>,
+    #[serde(default)]
+    pub repair_attempts: Vec<crate::repair::Attempt>,
     pub usage: Option<Usage>,
     pub completed_turns: u64,
     pub invalid_event_lines: u64,
@@ -148,6 +150,13 @@ impl Report {
                     .is_some_and(|check| check.exit_code == Some(0)),
                 "Verification did not pass"
             );
+            if let Some(repair) = self
+                .task_config
+                .as_ref()
+                .and_then(|config| config.repair.as_ref())
+            {
+                crate::repair::require_pass(&self.repair_attempts, &repair.check, &self.after)?;
+            }
             self.state = State::Ready;
         }
         self.step = None;
@@ -193,6 +202,7 @@ impl Report {
             agent_started_at_ms: None,
             agent_exit_code: None,
             verification: None,
+            repair_attempts: Vec::new(),
             usage: None,
             completed_turns: 0,
             invalid_event_lines: 0,

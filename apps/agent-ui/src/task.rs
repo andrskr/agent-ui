@@ -47,14 +47,44 @@ pub fn comparison_group<'a>(reference: &'a str, other: &str) -> Result<&'a str> 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct TaskConfig {
+    pub setup: SetupConfig,
+    pub repair: Option<RepairConfig>,
     pub dependencies: BTreeMap<String, String>,
     pub dev_dependencies: BTreeMap<String, String>,
     pub allow_builds: BTreeMap<String, bool>,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SetupConfig {
+    pub profiles: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepairConfig {
+    pub check: String,
+}
+
 impl TaskConfig {
     pub fn parse(source: &str) -> Result<Self> {
         let config: Self = toml::from_str(source).context("Invalid task.toml")?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
+        let config = self;
+        let mut profiles = std::collections::BTreeSet::new();
+        for name in &config.setup.profiles {
+            ensure!(
+                valid_part(name) && profiles.insert(name),
+                "Invalid or duplicate setup profile '{name}'"
+            );
+        }
+        if let Some(repair) = &config.repair {
+            ensure!(valid_part(&repair.check), "Invalid repair check name");
+        }
         for (name, version) in config.dependencies.iter().chain(&config.dev_dependencies) {
             let parts: Vec<_> = name.strip_prefix('@').unwrap_or(name).split('/').collect();
             ensure!(
@@ -93,7 +123,7 @@ impl TaskConfig {
                 "Build permission '{selector}' must match a package and exact version declared in this task"
             );
         }
-        Ok(config)
+        Ok(())
     }
 
     pub fn has_packages(&self) -> bool {

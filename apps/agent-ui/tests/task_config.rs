@@ -125,3 +125,21 @@ fn build_permissions_require_a_matching_declared_package_version() {
         json!({"packages": ["."], "allowBuilds": {"other@1.0.0": false}})
     );
 }
+
+#[test]
+fn setup_profiles_and_repair_are_explicit_and_strict() {
+    let config =
+        TaskConfig::parse("[setup]\nprofiles = ['root-quality']\n[repair]\ncheck = 'quality'")
+            .unwrap();
+    assert_eq!(config.setup.profiles, ["root-quality"]);
+    assert_eq!(config.repair.unwrap().check, "quality");
+    for invalid in [
+        "[setup]\nprofiles = ['../outside']",
+        "[setup]\nprofiles = ['root-quality', 'root-quality']",
+        "[setup]\nprofile = 'root-quality'",
+        "[repair]\ncheck = ''",
+        "[repair]\ncheck = 'quality'\noptional = true",
+    ] {
+        assert!(TaskConfig::parse(invalid).is_err(), "{invalid}");
+    }
+}

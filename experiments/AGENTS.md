@@ -79,16 +79,16 @@ change the shared starter. Transitive package permissions are not supported in t
 
 ## Starter commands
 
-Run these commands from the repository root:
+Run these commands from `experiments/starter/`, the root of its independent workspace:
 
 ```sh
-vp -C experiments/starter install
-vp -C experiments/starter run dev
-vp -C experiments/starter run verify
-vp -C experiments/starter run preview
+vp install
+vp run dev
+vp run verify
+vp run preview
 ```
 
-Inside a copied starter, use the same commands without `-C experiments/starter`. The dev server uses
+Inside a copied starter, run the same commands from the copied app folder. The dev server uses
 port 3100. The production preview uses port 4100. Both bind to `127.0.0.1` and fail if their port is
 already in use.
 
@@ -114,3 +114,47 @@ The Vite+ alias reports version 0.3.1 to peer checks, although it contains Vite 
 therefore report unmet Vite peers. Keep these warnings visible. The Astryx core lifecycle-script
 approval matches the existing root workspace approval. Its install script can suggest `astryx init`.
 Do not run it automatically. A task can supply the run's `AGENTS.md`.
+
+## Setup profiles and repair
+
+A task can select reusable setup profiles and require an in-pass check:
+
+```toml
+[setup]
+profiles = ["root-quality"]
+
+[repair]
+check = "quality"
+```
+
+Profiles live in `experiments/profiles/<name>/profile.toml`. They declare exact package versions,
+install permissions, file copies, and named checks. Profile sources are relative to the repository
+root. Destinations are relative to the run workspace. `replace = true` is required to replace a
+starter file. Conflicts between profiles are errors. Exclusions accept a relative file or directory,
+or `**/*.suffix`. Links and paths outside the source root are not allowed. Task prompts,
+`AGENTS.md`, reference assets, package manifests, and runner files are reserved destinations. Each
+task still owns its complete prompt and instructions. Profiles do not inherit sibling tasks.
+
+The root-quality profile copies the shared Vite+ policy and the custom Oxlint source package. It
+adds the exact plugin dependency. The profile configuration composes this policy with the starter
+build configuration. It maps the application source path to `src`; rule settings stay the same.
+
+Repair is opt-in. The runner adds `vp run repair` and a required-check instruction to the submitted
+prompt. The task's AGENTS.md remains a separate, unchanged input. The command requests the named
+check from the runner. The runner checks a source snapshot with saved dependencies, without network
+access. It returns diagnostics to the same agent session. No second agent pass starts. A failed
+check must be fixed and run again. A successful first check is valid. Direct `vp check` or
+`vp run verify` commands do not satisfy the recorded repair requirement.
+
+Setup runs the complete check before the agent starts. Repair fails setup if the unchanged starter
+cannot pass. Source and public assets can change during the task. Files outside `src/` and `public/`
+must keep their setup hashes. The final source must match the latest passing repair check. The
+runner then checks it again and copies the verified build to `app/dist`. Missing checks, failed
+checks, changed setup files, and source changes after a pass prevent Ready. Git staging and hooks
+are not required.
+
+The first repair command sandbox uses macOS Seatbelt. Other platforms reject repair during task
+validation. Baseline and context tasks keep their current provider behavior. Check logs, command
+results, source hashes, and preflight/final results are saved under `evidence/repair`. In-pass check
+time is part of total agent time. The controller uses a private dependency copy and an empty check
+home. Keep run storage outside the agent's writable workspace and temporary roots.

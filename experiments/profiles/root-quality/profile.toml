@@ -1,0 +1,19 @@
+[dev-dependencies]
+"@oxlint/plugins" = "1.82.0"
+
+[[files]]
+from = "tools/quality"
+to = "tools/quality"
+
+[[files]]
+from = "tools/oxlint-plugin"
+to = "tools/oxlint-plugin"
+exclude = ["node_modules", "**/*.spec.ts", "src/testing", "src/testing.ts", "tsconfig.json"]
+
+[[files]]
+from = "experiments/profiles/root-quality/vite.config.ts.template"
+to = "vite.config.ts"
+replace = true
+
+[checks.quality]
+commands = [["vp", "check"], ["vp", "run", "build"]]

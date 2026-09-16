@@ -58,10 +58,10 @@ impl Project {
         validate_files(&path)?;
         let starter = self.root.join("experiments/starter");
         let manifest = serde_json::from_slice(&fs::read(starter.join("package.json"))?)?;
-        input.config.apply(&manifest)?;
-        if !input.config.allow_builds.is_empty() {
-            input
-                .config
+        let plan = crate::profile::SetupPlan::resolve(&self.root, &input.config)?;
+        plan.packages.apply(&manifest)?;
+        if !plan.packages.allow_builds.is_empty() {
+            plan.packages
                 .apply_workspace(&fs::read_to_string(starter.join("pnpm-workspace.yaml"))?)?;
         }
 
@@ -69,6 +69,7 @@ impl Project {
             id: id.into(),
             path,
             starter: self.root.join("experiments/starter"),
+            plan,
         })
     }
 }
@@ -78,6 +79,7 @@ pub struct TaskSource {
     pub(crate) id: String,
     pub(crate) path: PathBuf,
     pub(crate) starter: PathBuf,
+    pub(crate) plan: crate::profile::SetupPlan,
 }
 
 pub(crate) struct TaskInput {
