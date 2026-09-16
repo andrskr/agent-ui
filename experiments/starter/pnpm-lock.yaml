@@ -191,6 +191,12 @@ importers:
       '@astryxdesign/build':
         specifier: 0.5.4
         version: 0.5.4(@babel/core@7.29.7)(@stylexjs/babel-plugin@0.19.0)(@stylexjs/unplugin@0.19.0(unplugin@2.3.11))(@voidzero-dev/vite-plus-core@0.3.1(@types/node@26.5.1)(jiti@2.7.0)(typescript@7.0.2))
+      '@babel/core':
+        specifier: 7.29.7
+        version: 7.29.7
+      '@stylexjs/babel-plugin':
+        specifier: 0.19.0
+        version: 0.19.0
       '@stylexjs/unplugin':
         specifier: 0.19.0
         version: 0.19.0(unplugin@2.3.11)

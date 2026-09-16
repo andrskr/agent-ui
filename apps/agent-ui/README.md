@@ -120,15 +120,16 @@ a different storage location. It must be outside the repository.
 
 Building the app needs Cargo. Opening the built UI and inspecting saved runs does not need a
 provider CLI, Node, Vite+, Git, pnpm, or ripgrep. A run resolves these tools during setup, in the
-background. It uses the ripgrep bundled with Codex when available, then checks PATH. The agent's
-`PATH` holds Node, ripgrep, and a wrapper for pnpm and for the `vp` command of the copied project,
-then the system folders. A wrapper keeps the real path of the target, because the pnpm that Vite+
-manages reads its own files beside that path. The agent can therefore run the project's
-`package.json` scripts by name. Each task prompt also gets notes that name these commands. Preview
-needs Vite+ only. The app currently targets macOS. The editor action uses Visual Studio Code.
-Browser actions use the default browser. Run `vp run agent-ui doctor` to check the local paths. Use
-`--binary <native-binary>` if the app cannot resolve the selected provider launcher. Optional
-`task.toml` files set task packages.
+background. It uses the ripgrep bundled with Codex when available, then checks PATH. It resolves
+pnpm through Vite+ so a different global version cannot trigger a download inside the agent sandbox.
+The agent's `PATH` holds Node, ripgrep, and a wrapper for pnpm and for the `vp` command of the
+copied project, then the system folders. A wrapper keeps the real path of the target, because the
+pnpm that Vite+ manages reads its own files beside that path. The agent can therefore run the
+project's `package.json` scripts by name. Each task prompt also gets notes that name these commands.
+Preview needs Vite+ only. The app currently targets macOS. The editor action uses Visual Studio
+Code. Browser actions use the default browser. Run `vp run agent-ui doctor` to check the local
+paths. Use `--binary <native-binary>` if the app cannot resolve the selected provider launcher.
+Optional `task.toml` files set task packages.
 
 ## Tasks and comparison
 
