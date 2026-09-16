@@ -7,7 +7,10 @@ are adapted from CodexBar. Claude message measurement in `src/providers/claude/e
 cache and repeated-message rules.
 
 Source:
-<https://github.com/steipete/CodexBar/blob/a5f2c581ce2e859dab983e28af50c03351db7dd3/Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift>
+<https://github.com/steipete/CodexBar/blob/639b15522692ead0e9a26f78cebd56a0803ffc8b/Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift>
+
+The price snapshot also uses <https://models.dev/api.json>, retrieved on 2026-09-16. See
+`docs/cost-prices-2026-09-16.json` for the source hash and relevant price records.
 
 MIT License
 

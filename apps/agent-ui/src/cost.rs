@@ -1,3 +1,9 @@
+/// Pinned calculator and catalog used for new estimates. See docs/cost-estimation.md.
+pub const PRICE_SOURCE: &str = concat!(
+    "https://github.com/steipete/CodexBar/blob/639b15522692ead0e9a26f78cebd56a0803ffc8b/Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift",
+    " + https://models.dev/api.json (2026-09-16; SHA256 c56684f4b3ef52452ad6285a53aedd6f03f2bb75061d6efeb297f6ee9cb55a95)"
+);
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]

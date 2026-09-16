@@ -354,13 +354,15 @@ It is not a subscription charge. The JSON report stores `cost_usd`, `cost_note`,
 `cost_models`, and `cost_source`. Comparison JSON includes `measurements.estimated_cost_usd`.
 Assessment usage remains separate from task costs.
 
-For Codex, the app uses the bundled rates and calculation from
-[CodexBar at commit a5f2c58](https://github.com/steipete/CodexBar/blob/a5f2c581ce2e859dab983e28af50c03351db7dd3/Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift).
-The rates were copied on 2026-09-14. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The app
-pins these rates for repeatable comparisons. It does not read CodexBar settings, custom prices, or
-the optional models.dev cache. Rate updates require a code change.
+For Codex, the app follows
+[CodexBar at commit 639b155](https://github.com/steipete/CodexBar/blob/639b15522692ead0e9a26f78cebd56a0803ffc8b/Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift).
+The prices include a models.dev snapshot from 2026-09-16. CodexBar prefers this catalog over its
+built-in prices, except for its explicit historical rules. The app pins the resolved prices for
+repeatable comparisons. It does not read CodexBar settings or download prices during a run. See
+[the cost review](docs/cost-estimation.md), [the saved prices](docs/cost-prices-2026-09-16.json),
+and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-For a run with complete saved request records, the app adds each request cost:
+For complete saved request records, the app adds each request cost:
 
 ```text
 cost = new input × input rate
@@ -370,35 +372,33 @@ cost = new input × input rate
 ```
 
 Input includes cache reads and writes. The app subtracts these subsets before it prices new input.
-It does not add reasoning tokens again. It uses each recorded model, timestamp, and service tier. It
-applies CodexBar's long-context and API Fast rules to each request. It also uses CodexBar's
-historical Luna and Terra rates before 2026-07-30. Repeated token totals do not add cost.
+It does not add reasoning tokens again. Each request uses its recorded model, timestamp, and service
+tier. Long-context and API Fast rules apply per request. Repeated totals do not add cost. When both
+cache-read field names occur, the larger value is used. The two values are not added.
 
-The request totals must match the saved run usage when that usage is available. Missing records,
-gaps, resets, and unreadable traces use a marked fallback. This fallback uses the requested model
-and standard rates for the run totals. It cannot apply request-specific long-context, Fast, or
-cache-write prices. A large run total alone does not trigger long-context pricing.
+Request totals must match saved run usage when available, including reported cache writes. Missing
+records, gaps, resets, and unreadable traces use a marked fallback. It prices run totals with the
+requested model, standard rates, and reported cache writes. If a model has a context price threshold
+and total input exceeds it, the fallback is unavailable. It cannot prove individual request sizes.
+The fallback does not infer Fast mode or the actual served model.
 
 Unknown model prices remain unavailable. Provider prefixes cannot select another provider's price.
-CodexBar assigns a zero rate to the Spark research preview; the view states this. Positive costs
-below one cent show `<$0.01`. Calculations and differences retain full precision in JSON.
-
-New reports save their cost and source. The report format is schema 2. Old reports are not
-supported. There is no migration, cost backfill, or old-report cache.
+Spark now uses the nonzero catalog price. Zero usage and missing prices remain different. Positive
+costs below one cent show `<$0.01`. JSON stores full calculation precision. New reports save their
+cost and source. Saved reports are not repriced. There is no cost backfill.
 
 For Claude, the final `total_cost_usd` from the CLI takes priority. It includes the CLI's model
 pricing. See [Claude cost tracking](https://platform.claude.com/docs/en/agent-sdk/cost-tracking).
-The adapter also borrows CodexBar's message replacement and cache rules from its
-[Claude scanner](https://github.com/steipete/CodexBar/blob/a5f2c581ce2e859dab983e28af50c03351db7dd3/Sources/CodexBarCore/Vendored/CostUsage/CostUsageScanner%2BClaude.swift).
-It replaces repeated records with the latest usage for the same message and request. If request IDs
-are absent, it uses the stable message ID. Missing message IDs make this fallback unavailable. Final
-usage replaces observed message totals. These two sources are never added together.
+The message fallback uses CodexBar's repeated-message and cache rules. It replaces repeated records
+with the latest usage for the same message and request. If request IDs are absent, it uses the
+stable message ID. Missing message IDs make this fallback unavailable. Final usage replaces observed
+message totals. These two sources are never added together.
 
-Claude's fallback uses the same pinned CodexBar price table, five-minute and one-hour cache-write
-rates, and per-request context thresholds. The table does not yet price Sonnet 5, Opus 5, or Fable
-5.1. Those models need the CLI's reported cost. The app does not guess their prices. A fallback
-requires complete observed usage and known prices for every message. When a final result exists,
-observed usage must also agree with final usage. Interrupted streams can show partial estimates.
+Claude's fallback includes five-minute and one-hour cache-write prices, model-specific cache-read
+prices, and per-request context thresholds. The pinned catalog includes Sonnet 5, Opus 5, and Fable
+5.1. A fallback requires complete observed usage and known prices for every message. When a final
+result exists, observed usage must also agree with final usage. Interrupted streams can show partial
+estimates.
 
 Cancellation stops the owned process group. Quitting stops active work and all owned previews.
 Reports remain on disk. On restart, an unfinished report without an active storage lock is marked

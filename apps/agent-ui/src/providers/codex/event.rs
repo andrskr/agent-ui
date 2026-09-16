@@ -66,12 +66,15 @@ pub(crate) fn request_cost(
         return None;
     }
     if let Some(usage) = expected
-        && previous[..3]
+        && (previous[..3]
             != [
                 usage.input_tokens,
                 usage.cached_input_tokens,
                 usage.output_tokens,
             ]
+            || usage
+                .cache_write_input_tokens
+                .is_some_and(|write| previous[3] != write))
     {
         return None;
     }
@@ -81,9 +84,10 @@ pub(crate) fn request_cost(
 fn cost_tokens(value: &serde_json::Value) -> Option<[u64; 4]> {
     Some([
         value["input_tokens"].as_u64()?,
+        // CodexBar takes the larger cache alias, not their sum.
         value["cached_input_tokens"]
             .as_u64()
-            .or_else(|| value["cache_read_input_tokens"].as_u64())?,
+            .max(value["cache_read_input_tokens"].as_u64())?,
         value["output_tokens"].as_u64()?,
         value["cache_write_input_tokens"].as_u64().unwrap_or(0),
     ])
@@ -101,7 +105,9 @@ pub fn decode(line: &[u8]) -> AgentObservation {
             let sample = (|| {
                 Some(Usage {
                     input_tokens: usage["input_tokens"].as_u64()?,
-                    cached_input_tokens: usage["cached_input_tokens"].as_u64()?,
+                    cached_input_tokens: usage["cached_input_tokens"]
+                        .as_u64()
+                        .max(usage["cache_read_input_tokens"].as_u64())?,
                     output_tokens: usage["output_tokens"].as_u64()?,
                     reasoning_output_tokens: usage["reasoning_output_tokens"].as_u64(),
                     cache_write_input_tokens: usage["cache_write_input_tokens"].as_u64(),
@@ -193,7 +199,7 @@ mod cost_tests {
             json!({"type": "event_msg", "payload": {"type": "token_count", "info": null}}),
         );
         let estimate = estimate(&rows, None).unwrap();
-        assert!((estimate.usd.unwrap() - 1.7).abs() < 1e-10);
+        assert!((estimate.usd.unwrap() - 1.28).abs() < 1e-10);
         assert_eq!(estimate.models, ["gpt-5.6-sol"]);
         assert_eq!(estimate.basis, crate::cost::Basis::Requests);
     }
@@ -208,7 +214,7 @@ mod cost_tests {
             }}),
         );
         let estimate = estimate(&rows, None).unwrap();
-        assert!((estimate.usd.unwrap() - 0.918).abs() < 1e-10);
+        assert!((estimate.usd.unwrap() - 0.708).abs() < 1e-10);
         assert_eq!(estimate.models, ["gpt-5.6-luna", "gpt-5.6-sol"]);
     }
 
@@ -240,7 +246,37 @@ mod cost_tests {
         rows.truncate(3);
         rows[2]["payload"]["info"]["last_token_usage"]["cache_write_input_tokens"] = json!(50_000);
         rows[2]["payload"]["info"]["total_token_usage"]["cache_write_input_tokens"] = json!(50_000);
-        assert!((estimate(&rows, None).unwrap().usd.unwrap() - 0.9125).abs() < 1e-10);
+        assert!((estimate(&rows, None).unwrap().usd.unwrap() - 0.69).abs() < 1e-10);
+        let expected = Usage {
+            input_tokens: 200_000,
+            cached_input_tokens: 100_000,
+            output_tokens: 10_000,
+            cache_write_input_tokens: Some(0),
+            ..Default::default()
+        };
+        assert!(estimate(&rows, Some(&expected)).is_none());
+    }
+
+    #[test]
+    fn cache_aliases_use_the_larger_count_without_double_counting() {
+        let mut rows = records();
+        rows.truncate(3);
+        for field in ["last_token_usage", "total_token_usage"] {
+            rows[2]["payload"]["info"][field]["cached_input_tokens"] = json!(0);
+            rows[2]["payload"]["info"][field]["cache_read_input_tokens"] = json!(100_000);
+        }
+        assert!((estimate(&rows, None).unwrap().usd.unwrap() - 0.64).abs() < 1e-10);
+        let event = json!({"type": "turn.completed", "usage":
+            rows[2]["payload"]["info"]["total_token_usage"]});
+        let AgentObservation::Event {
+            update: AgentUpdate::Turn(Some(usage)),
+            ..
+        } = decode(&serde_json::to_vec(&event).unwrap())
+        else {
+            panic!("Expected final usage");
+        };
+        assert_eq!(usage.cached_input_tokens, 100_000);
+        assert!(estimate(&rows, Some(&usage)).is_some());
     }
 
     #[test]

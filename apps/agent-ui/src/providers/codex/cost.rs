@@ -3,7 +3,7 @@ use crate::{
     evidence::Usage,
 };
 
-pub const SOURCE: &str = "https://github.com/steipete/CodexBar/blob/a5f2c581ce2e859dab983e28af50c03351db7dd3/Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift";
+pub use crate::cost::PRICE_SOURCE as SOURCE;
 
 /// One API request. Input includes cache reads and cache writes.
 pub struct Request {
@@ -14,14 +14,15 @@ pub struct Request {
     pub priority: bool,
 }
 
-// Rates and calculation follow CodexBar. See THIRD_PARTY_NOTICES.md.
+// Rates follow CodexBar with the pinned catalog. See docs/cost-estimation.md.
+// Attribution is in THIRD_PARTY_NOTICES.md.
 // Values are USD per million tokens.
 struct Rates {
     input: f64,
     cached: f64,
     output: f64,
     write: f64,
-    long_context: bool,
+    threshold: Option<u64>,
 }
 
 fn normalize(model: &str) -> &str {
@@ -58,14 +59,14 @@ fn rates(model: &str, timestamp_ms: u64) -> Option<Rates> {
         "gpt-5-pro" => (15.0, 15.0, 120.0, 15.0, false),
         "gpt-5.2" | "gpt-5.2-codex" | "gpt-5.3-codex" => (1.75, 0.175, 14.0, 1.75, false),
         "gpt-5.2-pro" => (21.0, 21.0, 168.0, 21.0, false),
-        "gpt-5.3-codex-spark" => (0.0, 0.0, 0.0, 0.0, false),
+        "gpt-5.3-codex-spark" => (1.75, 0.175, 14.0, 1.75, false),
         "gpt-5.4" => (2.5, 0.25, 15.0, 2.5, true),
         "gpt-5.4-mini" => (0.75, 0.075, 4.5, 0.75, false),
         "gpt-5.4-nano" => (0.2, 0.02, 1.25, 0.2, false),
         "gpt-5.4-pro" | "gpt-5.5-pro" => (30.0, 30.0, 180.0, 30.0, false),
         "gpt-5.5" => (5.0, 0.5, 30.0, 5.0, true),
         "gpt-6-astra" => (10.0, 1.0, 50.0, 12.5, true),
-        "gpt-5.6-sol" => (5.0, 0.5, 30.0, 6.25, true),
+        "gpt-5.6-sol" => (4.0, 0.4, 20.0, 5.0, true),
         "gpt-5.6-terra" if historical => (2.5, 0.25, 15.0, 3.125, true),
         "gpt-5.6-luna" if historical => (1.0, 0.1, 6.0, 1.25, true),
         "gpt-5.6-terra" => (2.0, 0.2, 12.0, 2.5, true),
@@ -77,7 +78,15 @@ fn rates(model: &str, timestamp_ms: u64) -> Option<Rates> {
         cached,
         output,
         write,
-        long_context,
+        // CodexBar keeps a bundled threshold when present. Otherwise its catalog
+        // parser uses the context_over_200k block, including for Pro models.
+        threshold: if long_context {
+            Some(272_000)
+        } else if matches!(model, "gpt-5.4-pro" | "gpt-5.5-pro") {
+            Some(200_000)
+        } else {
+            None
+        },
     })
 }
 
@@ -85,9 +94,13 @@ fn calculate(request: &Request, request_context: bool) -> Option<f64> {
     let model = normalize(&request.model);
     let rates = rates(model, request.timestamp_ms)?;
     let input = request.usage.input_tokens;
+    // A run total cannot show which requests crossed the context threshold.
+    if !request_context && rates.threshold.is_some_and(|limit| input > limit) {
+        return None;
+    }
     let cached = request.usage.cached_input_tokens.min(input);
     let write = request.cache_write_input_tokens.min(input - cached);
-    let long = request_context && rates.long_context && input > 272_000;
+    let long = request_context && rates.threshold.is_some_and(|limit| input > limit);
     let input_multiplier = if long { 2.0 } else { 1.0 };
     let output_multiplier = if long { 1.5 } else { 1.0 };
     let fast = if request.priority && (input <= 272_000 || model == "gpt-6-astra") {
@@ -129,7 +142,6 @@ pub fn requests(requests: &[Request]) -> Estimate {
     if usd.is_none() {
         estimate.note = "API cost unavailable: a request has no known model price.".into();
     }
-    preview_note(&mut estimate);
     estimate
 }
 
@@ -139,36 +151,23 @@ pub fn run_totals(model: &str, usage: Option<&Usage>, timestamp_ms: u64) -> Esti
             &Request {
                 model: model.into(),
                 usage: usage.clone(),
-                cache_write_input_tokens: 0,
+                cache_write_input_tokens: usage.cache_write_input_tokens.unwrap_or(0),
                 timestamp_ms,
                 priority: false,
             },
             false,
         )
     });
-    let mut estimate = Estimate {
+    Estimate {
         source: SOURCE.into(),
         usd,
         basis: Basis::RunTotals,
         models: vec![model.into()],
         note: match (usage, usd) {
             (None, _) => "API cost unavailable: token usage is not reported.",
+            (Some(usage), None) if rates(normalize(model), timestamp_ms).is_some_and(|r| r.threshold.is_some_and(|limit| usage.input_tokens > limit)) => "API cost unavailable: run totals exceed the model's context price threshold. Saved request details are required.",
             (_, None) => "API cost unavailable: the requested model has no known price.",
-            _ => "API price estimate from run totals and the requested model. Request details are unavailable. Uses standard rates; excludes long-context, Fast, and cache-write adjustments. This is not a subscription charge.",
+            _ => "API price estimate from run totals and the requested model. Request details are unavailable. Uses standard rates and reported cache writes; excludes Fast adjustments. This is not a subscription charge.",
         }.into(),
-    };
-    preview_note(&mut estimate);
-    estimate
-}
-
-fn preview_note(estimate: &mut Estimate) {
-    if estimate
-        .models
-        .iter()
-        .any(|m| normalize(m) == "gpt-5.3-codex-spark")
-    {
-        estimate
-            .note
-            .push_str(" CodexBar assigns a zero rate to the Spark research preview.");
     }
 }

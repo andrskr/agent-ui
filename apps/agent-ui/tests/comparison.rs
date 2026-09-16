@@ -174,10 +174,10 @@ fn cost_comparison_uses_model_prices_and_preserves_missing_values_when_swapped()
     a.estimate_cost_from_totals();
     b.estimate_cost_from_totals();
     let forward = Comparison::new(a.clone(), b.clone()).unwrap();
-    assert!((forward.measurements.estimated_cost_usd.difference.unwrap() + 0.5088).abs() < 1e-10);
+    assert!((forward.measurements.estimated_cost_usd.difference.unwrap() + 0.3628).abs() < 1e-10);
     assert_eq!(forward.measurements.input_tokens.difference, Some(0));
     let reverse = Comparison::new(b.clone(), a.clone()).unwrap();
-    assert!((reverse.measurements.estimated_cost_usd.difference.unwrap() - 0.5088).abs() < 1e-10);
+    assert!((reverse.measurements.estimated_cost_usd.difference.unwrap() - 0.3628).abs() < 1e-10);
     b.cost_usd = None;
     assert!(
         Comparison::new(a, b)

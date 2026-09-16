@@ -491,7 +491,7 @@ fn cost_values_render_for_single_runs_and_comparisons_at_supported_widths() {
     };
     for (width, height) in [(76, 24), (150, 44)] {
         let output = render(&screen(&tasks, &selection), width, height);
-        assert!(output.contains("$0.53"), "{output}");
+        assert!(output.contains("$0.38"), "{output}");
     }
     let comparison = Comparison::new(
         tasks.items[0].run.clone().unwrap(),
@@ -503,7 +503,7 @@ fn cost_values_render_for_single_runs_and_comparisons_at_supported_widths() {
         let mut view = screen(&tasks, &selection);
         view.comparison = Some(&comparison);
         let output = render(&view, width, height);
-        for value in ["$0.53", "$0.02", "−$0.51"] {
+        for value in ["$0.38", "$0.02", "−$0.36"] {
             assert!(output.contains(value), "{output}");
         }
     }
