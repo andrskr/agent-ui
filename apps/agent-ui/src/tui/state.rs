@@ -13,14 +13,10 @@ use anyhow::{Context, Result, ensure};
 pub(super) enum DetailTab {
     Overview,
     Activity,
-    Evidence,
+    Setup,
 }
 impl DetailTab {
-    pub const ALL: [Self; 3] = [Self::Overview, Self::Activity, Self::Evidence];
-    pub fn step(self, delta: isize) -> Self {
-        let i = Self::ALL.iter().position(|v| *v == self).unwrap();
-        Self::ALL[(i as isize + delta).rem_euclid(3) as usize]
-    }
+    pub const ALL: [Self; 3] = [Self::Overview, Self::Activity, Self::Setup];
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum FormField {
@@ -34,21 +30,6 @@ impl FormField {
         fields[(self as isize + delta).rem_euclid(fields.len() as isize) as usize]
     }
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum Side {
-    #[default]
-    Reference,
-    Other,
-}
-impl Side {
-    pub fn toggle(self) -> Self {
-        if self == Self::Reference {
-            Self::Other
-        } else {
-            Self::Reference
-        }
-    }
-}
 #[derive(Clone, Copy)]
 pub(super) enum ReviewAction {
     Preview,
@@ -58,7 +39,10 @@ pub(super) enum ReviewAction {
 pub(super) enum Modal {
     None,
     Run,
-    Assess,
+    RunGroup,
+    Reference,
+    PairA,
+    PairB,
     Picker,
     Help,
 }
@@ -68,9 +52,7 @@ pub struct App {
     pub(super) tasks: Tasks,
     pub(super) picker: Tasks,
     pub(super) selection: Selection,
-    pub(super) side: Side,
     pub(super) comparison: Option<Comparison>,
-    pub(super) assessment: String,
     pub(super) details: Option<TaskDetails>,
     pub(super) agent_note: String,
     context_id: Option<String>,
@@ -80,14 +62,25 @@ pub struct App {
     pub(super) modal: Modal,
     pub(super) field: FormField,
     pub(super) notice: String,
+    pub(super) login_request: Option<Settings>,
 }
 impl App {
     pub fn new(runtime: Application, settings: Settings) -> Result<Self> {
-        let mut tasks = Tasks::default();
+        let mut tasks = Tasks::grouped();
         tasks.replace(runtime.task_views()?);
-        let selection = runtime.selection()?;
+        let mut selection = runtime.selection()?;
+        let notice = selection.reconcile(&tasks.items).unwrap_or_default();
+        runtime.save_selection(&selection)?;
         if let Some(task) = &selection.task {
             tasks.select_id(task);
+        }
+        if selection.comparing
+            && let Some(pair) = &selection.pair
+        {
+            tasks.select_id(&pair.reference);
+        }
+        if selection.task_level && !selection.comparing {
+            tasks.enter();
         }
         let mut app = Self {
             runtime,
@@ -95,9 +88,7 @@ impl App {
             tasks,
             picker: Tasks::default(),
             selection,
-            side: Side::Reference,
             comparison: None,
-            assessment: String::new(),
             details: None,
             agent_note: String::new(),
             context_id: None,
@@ -106,17 +97,15 @@ impl App {
             scroll: None,
             modal: Modal::None,
             field: FormField::Provider,
-            notice: String::new(),
+            notice,
+            login_request: None,
         };
         app.load_context()?;
         Ok(app)
     }
     pub(super) fn focused_task(&self) -> Option<&str> {
-        if self.selection.comparing {
-            self.selection.pair.as_ref().map(|p| match self.side {
-                Side::Reference => p.reference.as_str(),
-                Side::Other => p.other.as_str(),
-            })
+        if self.selection.comparing || self.tasks.is_group() {
+            None
         } else {
             self.tasks.current().map(|t| t.id.as_str())
         }
@@ -126,18 +115,17 @@ impl App {
         self.tasks.items.iter().find(|t| t.id == id)?.run.as_ref()
     }
     fn persist(&mut self) -> Result<()> {
+        self.selection.task_level = !self.tasks.is_group();
         self.selection.task = self.tasks.current().map(|t| t.id.clone());
         self.runtime.save_selection(&self.selection)
     }
     pub(super) fn load_context(&mut self) -> Result<()> {
         self.comparison = None;
-        self.assessment.clear();
         if self.selection.comparing
             && let Some(pair) = &self.selection.pair
         {
             match self.runtime.compare(&pair.reference, &pair.other) {
                 Ok(comparison) => {
-                    self.assessment = self.runtime.assessment_text(&comparison)?;
                     self.comparison = Some(comparison);
                 }
                 Err(error) => self.notice = format!("Comparison unavailable: {error:#}"),
@@ -172,11 +160,17 @@ impl App {
                 format!("{} runs finished.", finished.len())
             };
         }
-        if self.runtime.poll_assessment()?.is_some() {
-            self.notice = "Agent assessment finished. Open Overview to read it.".into();
-        }
         self.tasks.replace(self.runtime.task_views()?);
-        self.picker.replace(self.tasks.items.clone());
+        if matches!(self.modal, Modal::PairA | Modal::PairB) {
+            self.refresh_pair_picker()?;
+        } else if self.modal == Modal::Reference {
+            self.picker.replace(self.tasks.reference_picker().items);
+        } else if let Some(task) = self.tasks.current() {
+            self.picker
+                .replace(self.tasks.comparison_picker(&task.id)?.items);
+        } else {
+            self.picker.replace(Vec::new());
+        }
         self.load_context()?;
         for (task, result) in self.runtime.poll_previews() {
             match result {
@@ -191,26 +185,114 @@ impl App {
         Ok(())
     }
     pub(super) fn navigate(&mut self, delta: isize) -> Result<()> {
+        let comparing = self.selection.comparing;
         self.tasks.navigate(delta);
-        self.selection.comparing = false;
-        self.side = Side::Reference;
+        self.selected()?;
+        if comparing && self.tasks.is_group() {
+            self.group_tab(true)?;
+        }
+        Ok(())
+    }
+    pub(super) fn enter_group(&mut self) -> Result<()> {
+        self.tasks.enter();
+        self.tab = DetailTab::Overview;
+        self.selected()
+    }
+    pub(super) fn back(&mut self) -> Result<()> {
+        if self.selection.comparing {
+            return self.leave_comparison();
+        }
+        self.tasks.leave();
+        self.tasks.set_query(String::new());
+        self.selected()
+    }
+    pub(super) fn group_tab(&mut self, compare: bool) -> Result<()> {
+        if !compare {
+            return self.leave_comparison();
+        }
+        if self.selection.comparing {
+            return Ok(());
+        }
+        if let Some(pair) = &self.selection.pair
+            && Some(super::tasks::group(&pair.reference)) == self.tasks.group()
+            && self.runtime.compare(&pair.reference, &pair.other).is_ok()
+        {
+            self.selection.comparing = true;
+            self.tab = DetailTab::Overview;
+            self.scroll = None;
+            self.persist()?;
+            return self.load_context();
+        }
+        let available: Vec<_> = self
+            .tasks
+            .members()
+            .iter()
+            .filter(|task| task.run.is_some() && !task.cleanup_pending)
+            .map(|task| task.id.clone())
+            .collect();
+        self.selection.pair = match available.as_slice() {
+            [a, b, ..] => Some(TaskPair::new(a.clone(), b.clone())?),
+            _ => None,
+        };
+        self.selection.comparing = true;
         self.scroll = None;
         self.persist()?;
         self.load_context()
     }
     pub(super) fn selected(&mut self) -> Result<()> {
+        if self.tasks.is_group() {
+            self.tab = DetailTab::Overview;
+        }
         self.selection.comparing = false;
-        self.side = Side::Reference;
         self.scroll = None;
         self.persist()?;
         self.load_context()
     }
+    pub(super) fn request_login(&mut self) {
+        let provider = self
+            .current()
+            .map(|run| run.provider.clone())
+            .unwrap_or_else(|| self.settings.provider.clone());
+        let mut settings =
+            Settings::for_provider(&provider).unwrap_or_else(|_| self.settings.clone());
+        settings.binary = self.settings.binary.clone();
+        self.notice = format!("Opening {provider} login…");
+        self.login_request = Some(settings);
+    }
+    pub(super) fn take_login_request(&mut self) -> Option<Settings> {
+        self.login_request.take()
+    }
     pub(super) fn new_run(&mut self) -> Result<()> {
+        if self.tasks.is_group() && !self.selection.comparing {
+            ensure!(self.tasks.group().is_some(), "Select a group");
+            self.modal = Modal::RunGroup;
+            self.field = FormField::Provider;
+            return Ok(());
+        }
+        ensure!(!self.selection.comparing, "Return to a task to start a run");
         let task = self.focused_task().context("Select a task")?;
         ensure!(
             !self.runtime.is_running(task),
             "This task is already running"
         );
+        let previous = self.current().map(|run| {
+            (
+                run.provider.clone(),
+                run.model_requested.clone(),
+                run.effort_requested.clone(),
+            )
+        });
+        if let Some((provider, model, effort)) = previous
+            && let Ok(mut settings) = Settings::for_provider(&provider)
+        {
+            settings.model = model;
+            settings.effort = effort;
+            settings.timeout = self.settings.timeout;
+            settings.binary = self.settings.binary.clone();
+            if settings.validate().is_ok() {
+                self.settings = settings;
+            }
+        }
         self.context_id = None;
         self.load_context()?;
         self.modal = Modal::Run;
@@ -218,10 +300,13 @@ impl App {
         Ok(())
     }
     pub(super) fn start(&mut self) -> Result<()> {
-        if self.modal == Modal::Assess {
-            self.start_assessment()?;
+        if self.modal == Modal::RunGroup {
+            let group = self.tasks.group().context("Select a group")?.to_owned();
+            let count = self.runtime.start_group(&group, self.settings.clone())?;
             self.modal = Modal::None;
-            return Ok(());
+            self.notice = format!("Started {count} tasks in {group}. Up to four run at once.");
+            self.scroll = None;
+            return self.refresh();
         }
         let task = self.focused_task().context("Select a task")?.to_owned();
         self.runtime.start(&task, self.settings.clone())?;
@@ -232,13 +317,19 @@ impl App {
         self.refresh()
     }
     pub(super) fn choose_comparison(&mut self) -> Result<()> {
+        if self.tasks.is_group() {
+            self.picker = self.tasks.reference_picker();
+            ensure!(!self.picker.items.is_empty(), "Select a group");
+            self.notice.clear();
+            self.modal = Modal::Reference;
+            return Ok(());
+        }
         let task = self.tasks.current().context("Select the reference task")?;
         ensure!(
             task.run.is_some(),
             "Run the reference task before comparing it"
         );
-        self.picker = Tasks::default();
-        self.picker.replace(self.tasks.items.clone());
+        self.picker = self.tasks.comparison_picker(&task.id)?;
         if let Some(pair) = &self.selection.pair {
             self.picker.select_id(&pair.other);
         }
@@ -247,6 +338,38 @@ impl App {
         Ok(())
     }
     pub(super) fn confirm_comparison(&mut self) -> Result<()> {
+        if matches!(self.modal, Modal::PairA | Modal::PairB) {
+            let task = self.picker.current().context("Select a saved result")?;
+            ensure!(
+                !task.cleanup_pending && task.run.is_some(),
+                "Run this task first"
+            );
+            let old = self.selection.pair.as_ref().context("Select two tasks")?;
+            let pair = if self.modal == Modal::PairA {
+                TaskPair::new(task.id.clone(), old.other.clone())?
+            } else {
+                TaskPair::new(old.reference.clone(), task.id.clone())?
+            };
+            self.runtime.compare(&pair.reference, &pair.other)?;
+            self.tasks.select_id(&pair.reference);
+            self.selection.pair = Some(pair);
+            self.modal = Modal::None;
+            self.scroll = None;
+            self.persist()?;
+            return self.load_context();
+        }
+        if self.modal == Modal::Reference {
+            let task = self.picker.current().context("Select the reference task")?;
+            ensure!(
+                !task.cleanup_pending && task.run.is_some(),
+                "Run this task before comparing it"
+            );
+            let id = task.id.clone();
+            self.tasks.select_id(&id);
+            self.picker = self.tasks.comparison_picker(&id)?;
+            self.modal = Modal::Picker;
+            return Ok(());
+        }
         let reference = self
             .tasks
             .current()
@@ -254,13 +377,14 @@ impl App {
             .id
             .clone();
         let other = self.picker.current().context("Select another task")?;
+        ensure!(!other.cleanup_pending, "Task cleanup is blocked");
         ensure!(other.run.is_some(), "This task has no run yet");
         let pair = TaskPair::new(reference, other.id.clone())?;
         self.runtime.compare(&pair.reference, &pair.other)?;
         self.notice.clear();
         self.selection.pair = Some(pair);
+        self.tasks.leave();
         self.selection.comparing = true;
-        self.side = Side::Reference;
         self.tab = DetailTab::Overview;
         self.scroll = None;
         self.modal = Modal::None;
@@ -273,7 +397,6 @@ impl App {
         {
             pair.swap();
             self.tasks.select_id(&pair.reference);
-            self.side = Side::Reference;
             self.scroll = None;
             self.persist()?;
             self.load_context()?;
@@ -282,44 +405,79 @@ impl App {
     }
     pub(super) fn leave_comparison(&mut self) -> Result<()> {
         self.selection.comparing = false;
+        self.tab = DetailTab::Overview;
         self.scroll = None;
         self.persist()?;
         self.load_context()
     }
-    pub(super) fn assess(&mut self) -> Result<()> {
-        ensure!(self.selection.comparing, "Select two tasks first");
-        ensure!(
-            !self.runtime.is_busy(),
-            "Wait for the active operation or press C to cancel it"
-        );
-        self.modal = Modal::Assess;
-        self.field = FormField::Provider;
+    pub(super) fn tab_index(&self) -> usize {
+        if self.tasks.is_group() {
+            usize::from(self.selection.comparing)
+        } else {
+            self.tab as usize
+        }
+    }
+    pub(super) fn switch_tab(&mut self, index: usize) -> Result<()> {
+        if self.tasks.is_group() {
+            self.group_tab(index == 1)
+        } else {
+            self.tab = DetailTab::ALL[index];
+            self.scroll = None;
+            Ok(())
+        }
+    }
+    fn refresh_pair_picker(&mut self) -> Result<()> {
+        if let Some(pair) = &self.selection.pair {
+            let fixed = if self.modal == Modal::PairA {
+                &pair.other
+            } else {
+                &pair.reference
+            };
+            self.picker
+                .replace(self.tasks.comparison_picker(fixed)?.items);
+        }
         Ok(())
     }
-    fn start_assessment(&mut self) -> Result<()> {
-        ensure!(self.selection.comparing, "Select two tasks first");
-        let pair = self
-            .selection
-            .pair
-            .as_ref()
-            .context("Select two tasks first")?;
-        self.runtime
-            .start_assessment(&pair.reference, &pair.other, self.settings.clone())?;
-        self.tab = DetailTab::Overview;
-        self.notice = "The agent is assessing saved evidence. Usage is recorded separately.".into();
+    pub(super) fn edit_pair(&mut self, reference: bool) -> Result<()> {
+        if self.selection.pair.is_none() {
+            return self.choose_comparison();
+        }
+        self.modal = if reference {
+            Modal::PairA
+        } else {
+            Modal::PairB
+        };
+        self.picker = Tasks::default();
+        self.refresh_pair_picker()?;
+        if let Some(pair) = &self.selection.pair {
+            self.picker.select_id(if reference {
+                &pair.reference
+            } else {
+                &pair.other
+            });
+        }
         Ok(())
     }
     pub(super) fn lines(&self, width: u16) -> Vec<ratatui::text::Line<'static>> {
+        if self.selection.comparing {
+            return super::compare::lines(self.comparison.as_ref(), width);
+        }
+        if self.tasks.is_group() && !self.selection.comparing {
+            return super::groups::lines(
+                &self.tasks,
+                &self.runtime.active_task_ids(),
+                &self.runtime.queued_task_ids(),
+                self.runtime.queue_errors(),
+                width,
+            );
+        }
         super::details::screen_lines(
             &super::details::Content {
                 task: self.tasks.current(),
                 run: self.current(),
-                comparison: self.comparison.as_ref(),
-                comparing: self.selection.comparing,
                 tab: self.tab,
                 details: self.details.as_ref(),
                 note: &self.agent_note,
-                assessment: &self.assessment,
             },
             width,
         )
@@ -333,11 +491,13 @@ impl App {
     }
     pub(super) fn scroll_page(&mut self, delta: i32, height: u16, width: u16) {
         let last = self.last_scroll_row(height, width);
-        let current = self.scroll.unwrap_or(if self.tab == DetailTab::Activity {
-            last
-        } else {
-            0
-        });
+        let current = self.scroll.unwrap_or(
+            if !self.selection.comparing && self.tab == DetailTab::Activity {
+                last
+            } else {
+                0
+            },
+        );
         self.scroll = Some((i32::from(current) + delta).clamp(0, i32::from(last)) as u16);
     }
     pub(super) fn review(&mut self, action: ReviewAction) -> Result<()> {

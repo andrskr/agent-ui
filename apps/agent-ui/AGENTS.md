@@ -22,8 +22,11 @@ interactive TUI. Read [README.md](README.md) for the run flow, file structure, a
   `Store`.
 - Keep one current run per task. Validate inputs and tools before deleting the old output. Keep
   replacement, locks, and recovery in `Store`. Do not add history or approval states.
-- Compare different tasks through `Comparison`. Keep optional agent assessment usage separate. Bind
-  the assessment to exact run IDs. Keep preview ownership per task.
+- Use `TaskId` for `<group>--<variant>` names. Keep run ID validation separate. The folder name is
+  the only source of group membership. Do not add aliases or old-name compatibility.
+- Compare different variants from the same group through `Comparison`. Use the shared group rule for
+  CLI actions, the TUI picker, saved selection, and assessments. Keep optional agent assessment
+  usage separate. Bind the assessment to exact run IDs. Keep preview ownership per task.
 - Keep each provider's models, efforts, commands, login, and pricing in its provider folder.
 - Register providers once in `providers/mod.rs`. Do not add provider switches to shared callers.
 - Keep provider JSON in `providers/<id>/event.rs`. Feed typed observations to `Report`.
@@ -43,4 +46,5 @@ interactive TUI. Read [README.md](README.md) for the run flow, file structure, a
 - Test observable behavior with independent expected results. Do not test copied logic, display
   labels alone, or mock call counts. Document behavior that needs a separate manual check.
 - Run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and
-  `cargo test --workspace` from the repository root. Run the root verification command.
+  `cargo test --workspace` from the repository root. Run `vp run agent-ui tasks --check` to validate
+  the task catalog without run storage. Run the root verification command.

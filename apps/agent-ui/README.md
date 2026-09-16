@@ -3,23 +3,42 @@
 A local application for coding experiments. The CLI and TUI use the same Rust runner. The terminal
 view uses a charcoal background, a mint accent, and separate colours for run states.
 
-The sidebar lists tasks by ID. Each item shows its current state and the date and time of its latest
-run. Press `/` to search by task or state. Search words must all match. Selection stays on the task
-when its run changes. Tasks with no run remain visible.
+The sidebar shows groups with their tasks below them. For example, Smoke contains Baseline, Context,
+and Repair. The tree stays visible at both navigation levels. Up and Down select groups. Press Enter
+to move into a group. Up and Down then select only its tasks. Press Esc to return to the group.
+Click a group or task to select it directly. The mouse wheel follows the current level. Press `/` to
+search by group, task, or saved state. Search words must all match.
 
-Click a task, tab, or review button to select it. Use `n` to run the selected task and `c` to
-compare it with another task. The mouse wheel selects tasks in the sidebar and scrolls the detail
-view. Keyboard controls remain available through `?`. The layout needs at least 76 columns and 24
-rows. It respects `NO_COLOR`.
+Group Overview shows all tasks in the selected group, even when search hides some sidebar rows.
+Press `n`, or click Run all tasks, to choose one provider, model, and effort for the group. The form
+states that each new run replaces its old output. Tasks already running or queued are skipped. The
+app runs up to four tasks at once. It queues the rest and starts them as slots become free. The
+queue stays in memory. Quitting removes pending work and stops active work. Press `C` at group level
+to cancel that group's active and queued tasks. A failure in one task does not stop the rest.
 
-The Overview shows estimated API cost in USD, one duration breakdown, one token table, verification,
-changed file paths, and an excerpt from the saved agent note. File labels mean added (`A`), modified
-(`M`), deleted (`D`), or unknown (`?`). The note excerpt uses up to four non-empty lines and 600
-characters. Open the full note with `a`. Missing notes and measurements remain explicit.
+Every view uses the same tab controls. Left and Right, Tab and Shift+Tab, or the visible tab labels
+change views. Number keys select the visible tabs. Group tabs are Overview and Compare. Task tabs
+are Overview, Activity, and Setup. Tab changes the view. Enter and Esc change the navigation level.
+Use `?` for all keyboard controls. The layout needs at least 76 columns and 24 rows. It respects
+`NO_COLOR`.
 
-Preview and Open code stay visible across Overview, Activity, and Evidence. The preview control
-shows startup and ready states. Stop applies to the preview owned by this app. Evidence provides the
-JSON report, full agent note, and evidence folder through `r`, `a`, and `f`.
+Compare opens the saved pair for this group, or the first two available results. If fewer than two
+results exist, it shows an empty state. Use `a` or `b` to choose either member. Use `s` to swap
+them. Both selectors stay inside the current group. Compare shows configurations, outcomes, and
+metrics with **B minus A** differences. It has no run, preview, file, or assessment actions. Esc
+returns to Group Overview. Enter opens Task View. Up and Down select groups and keep Compare open.
+
+In Task View, use `n` to run the selected task and `c` to compare it with another variant in the
+same group. This opens the group Compare view. Task Overview shows estimated API cost in USD, phase
+durations, tokens, verification, and a short agent note. Activity shows the event log. Setup shows
+saved run configuration and the current task prompt. It marks changed task inputs. Missing
+measurements stay explicit. Generated file inventories and raw JSON are not shown.
+
+Each view has one local action row. Task Run, Preview, and Code actions keep the same position
+across task tabs. The preview control shows startup and ready states. Stop applies to the preview
+owned by this app. Use `r`, `a`, and `f` to open the report, full agent note, and run files.
+
+See [the view design](../../docs/ui-design/README.md) for the design board and interaction rules.
 
 Run from the repository root:
 
@@ -27,13 +46,14 @@ Run from the repository root:
 vp run agent-ui
 vp run agent-ui providers
 vp run agent-ui tasks
-vp run agent-ui run smoke
-vp run agent-ui show smoke
-vp run agent-ui open smoke code
-vp run agent-ui preview smoke
-vp run agent-ui compare <task-a> <task-b>
-vp run agent-ui compare <task-a> <task-b> --assess
-vp run agent-ui compare <task-a> <task-b> --saved
+vp run agent-ui tasks --check
+vp run agent-ui run smoke--baseline
+vp run agent-ui show smoke--baseline
+vp run agent-ui open smoke--baseline code
+vp run agent-ui preview smoke--baseline
+vp run agent-ui compare smoke--baseline smoke--context
+vp run agent-ui compare smoke--baseline smoke--context --assess
+vp run agent-ui compare smoke--baseline smoke--context --saved
 ```
 
 Use `--provider`, `--model`, `--effort`, and `--timeout` to select a run. The default is Codex,
@@ -85,9 +105,9 @@ Account access and managed policy can further limit these choices.
 ```sh
 vp run agent-ui --provider claude login
 vp run agent-ui --provider claude doctor
-vp run agent-ui --provider claude --model claude-fable-5-1 --effort high run smoke
-vp run agent-ui --provider codex --model gpt-6-astra --effort ultra run smoke
-vp run agent-ui --provider claude compare <task-a> <task-b> --assess
+vp run agent-ui --provider claude --model claude-fable-5-1 --effort high run smoke--baseline
+vp run agent-ui --provider codex --model gpt-6-astra --effort ultra run smoke--baseline
+vp run agent-ui --provider claude compare smoke--baseline smoke--context --assess
 ```
 
 Use `--project <folder>` when you start outside this repository. Use `--data-dir <folder>` to choose
@@ -103,9 +123,41 @@ actions use the default browser. Run `vp run agent-ui doctor` to check the local
 
 ## Tasks and comparison
 
-The sidebar lists tasks. Each task keeps one run. Select a task to see its latest result or its
-prompt if it has no result. Press `n` to start it. The Run form lets you select provider, model, and
-effort.
+Name each task folder `<group>--<variant>`. For example:
+
+```text
+experiments/tasks/
+  _template/
+  smoke--baseline/task.md
+  smoke--context/task.md
+  smoke--context/AGENTS.md
+  smoke--repair/task.md
+  smoke--repair/AGENTS.md
+```
+
+Each part uses lowercase ASCII letters, numbers, and single hyphens between words. Use exactly one
+`--` separator. Neither part can be empty or start or end with a hyphen. The full ID is limited to
+120 characters. `_template` is excluded. Other task names are invalid. The folder name is the only
+source of group membership. See [the experiment instructions](../../experiments/AGENTS.md).
+
+A group identifies the work and success criteria. A variant identifies its setup. Each variant owns
+its prompt and optional instructions, references, and package settings. Copy an existing variant to
+add another setup. Keep the main objective and success criteria the same. The app checks group
+names; it cannot prove that two prompts request equivalent work. Input and setup differences remain
+visible in the comparison.
+
+The original `smoke` task is now `smoke--baseline`. Old names and runs have no compatibility
+mapping. The three smoke variants have the same prompt. `baseline` has no project instructions.
+`context` adds project instructions. `repair` adds a check-and-repair step to those instructions
+within the same run. Use fresh runs for the new task IDs. Every variant starts from the starter. A
+variant named `repair` does not inherit another run's output or start a separate repair pass.
+
+Run `vp run agent-ui tasks --check` after changing task inputs. It checks names, prompts, input
+files, and package settings without opening run storage or starting an agent.
+
+Each task keeps one run. Enter a group and select a task to see its latest result or its prompt if
+it has no result. Press `n` to start it. The Run form lets you select provider, model, and effort.
+The selected task, navigation level, and comparison pair are saved.
 
 Starting a run removes that task's previous code, logs, and reports. The app validates settings,
 then starts the run in the background. The run stops that task's owned preview, removes any
@@ -117,33 +169,35 @@ If removal fails, the app shows `Cleanup blocked`. No new run starts. Restart th
 task again to retry cleanup. A preview owned by another process blocks removal. Stop that preview
 first. The app does not stop previews for other tasks.
 
-Press `c` to select a second task. Both tasks must have a saved run. Tasks with no run remain
-visible in the picker, with a reason why they cannot be selected. The selected task is side A. The
-other task is side B. Use `s` to swap them, `v` to choose a side, and `Esc` to return to the task
-view. The app saves the selected task and comparison pair.
+Press `c` to select another variant from the same group. Both variants must have a saved run. The
+picker excludes the selected task and all other groups. Variants with no run remain visible with a
+reason why they cannot be selected. The app explains when the group has no other variant. The
+selected task is A. The other task is B. Use `s` to swap them and `Esc` to return to Group Overview.
+The app saves the selected task and comparison pair. On startup, it clears an unavailable or invalid
+pair and returns to Overview with a message. CLI comparison, assessment, and saved assessment access
+use the same group rule.
 
-Overview shows estimated API cost, time, and token differences as **B minus A**. It also shows
-provider, model, effort, tool versions, verification, and saved input, setup, and final source
-changes. Activity and Evidence show the selected side. Code and preview actions also use the
-selected side. Both previews can remain open at the same time. The comparison reads saved input
-hashes and reports. Editing a task folder does not change the saved result.
+Compare View shows estimated API cost, phase times, and token differences as **B minus A**. It also
+shows provider, model, effort, time limit, package settings, and verification outcomes. It reads
+saved reports. Editing a task folder does not change the saved result. Tool versions remain in Task
+Setup. The CLI comparison report still includes file differences for detailed inspection.
 
 There is no approval state. `Ready` means agent completion and project verification passed. It does
 not mean that a person approved the UI. Token counts do not measure UI quality.
 
 ## Optional agent assessment
 
-Press `m` in comparison view, or run `compare <task-a> <task-b> --assess`. The form lets you select
-its provider, model, and effort. It starts a separate local session with the provider's assessment
+Run `compare smoke--baseline smoke--context --assess` from the CLI. Set its provider, model, and
+effort through CLI options. This starts a separate local session with the provider's assessment
 permissions. It reads the saved code and evidence. It does not start a browser or perform visual
 review. It produces a Markdown assessment and its own JSON report, usage, events, command,
 environment, and provider artifacts. Its token use is separate from task token use.
 
 The app keeps one saved assessment. It binds the exact two run IDs and their order. Use
-`compare <task-a> <task-b> --saved` to read it without starting an agent. Starting an assessment
-replaces the previous assessment. Rerunning either task removes it. Swapping the pair does not reuse
-an assessment written in the other direction. An active assessment holds the execution lock, so a
-task cannot replace its evidence while the assessment reads it.
+`compare smoke--baseline smoke--context --saved` to read it without starting an agent. Starting an
+assessment replaces the previous assessment. Rerunning either task removes it. Swapping the pair
+does not reuse an assessment written in the other direction. An active assessment holds the
+execution lock, so a task cannot replace its evidence while the assessment reads it.
 
 ## Files and ownership
 
@@ -151,11 +205,12 @@ task cannot replace its evidence while the assessment reads it.
 apps/agent-ui/src/
   application.rs   Shared task, run, comparison, and preview actions
   project.rs       Task discovery and preflight input checks
-  task.rs          Pure task.toml package and permission rules
+  task.rs          Task identity, comparison groups, and task.toml rules
   task_result.rs   Task result slots and saved selection
   storage.rs       Index, report writes, replacement, locks, and recovery
   runner.rs        Setup, agent execution, and verification
   worker.rs        Worker cancellation and join ownership
+  run_queue.rs     Pending group tasks and dispatch capacity
   workspace.rs     Saved inputs, copied app, packages, and source inventory
   journal.rs       Measured phases and saved progress
   report.rs        Task result and lifecycle rules
@@ -169,7 +224,11 @@ apps/agent-ui/src/
   preview.rs       One preview process and readiness state
   tui/
     state.rs       Task selection, pair, forms, and application actions
-    tasks.rs       Task search, stable selection, and list window
+    tasks.rs       Group and task navigation, search, and list window
+    groups.rs      Group Overview and per-task summaries
+    tabs.rs        Shared tab rendering and keyboard/mouse targets
+    compare.rs     Comparison layout, content, and controls
+    text.rs        Shared text formatting
     details.rs     Task and comparison content
     input.rs       Keyboard and mouse input
     layout.rs      Shared display and input rectangles
@@ -223,7 +282,7 @@ runner does not add task instructions. There is no import or migration of old ru
 ## Task configuration
 
 ```text
-experiments/tasks/workspace-settings/
+experiments/tasks/workspace-settings--baseline/
   task.md
   task.toml       Optional package settings
   AGENTS.md       Optional project instructions
@@ -335,10 +394,10 @@ observed usage must also agree with final usage. Interrupted streams can show pa
 Cancellation stops the owned process group. Quitting stops active work and all owned previews.
 Reports remain on disk. On restart, an unfinished report without an active storage lock is marked
 `interrupted`. Runs do not resume automatically. Up to four task runs execute at once, one run per
-task. An assessment does not run while any task run is active. One app instance uses a storage
-location at a time. Each preview uses a separate local port and stops when its owning app or CLI
-command closes. A new run removes only the previous output for its task and any assessment that uses
-it.
+task. An assessment does not run while any task run is active or queued. One app instance uses a
+storage location at a time. Each preview uses a separate local port and stops when its owning app or
+CLI command closes. A new run removes only the previous output for its task and any assessment that
+uses it.
 
 Codex gets a fresh HOME and CODEX_HOME, an explicit environment, disabled external integrations, and
 the workspace-write sandbox. The app copies the existing file-based ChatGPT login into private
@@ -349,8 +408,12 @@ the private credential seed keeps refreshes. Per-run private state is removed af
 Claude needs the native Claude Code CLI, version 2.1.257 or later. Run the Claude login command
 above once for each data directory. The adapter sets `CLAUDE_CONFIG_DIR` to
 `private/providers/claude`. Claude Code owns login and credential refresh. Agent UI does not copy or
-read the host keychain. Each operation has a fresh HOME. Safe mode disables user customizations,
-hooks, skills, plugins, MCP, and automatic memory. Managed machine policy can still apply.
+read the host keychain. Login, sign-in checks, tasks, and assessments keep the same macOS HOME,
+USER, and LOGNAME so Claude can read that login. A temporary HOME or a different USER can make
+Claude report that it is not signed in. The rest of the run environment uses an explicit list of
+values. It does not inherit API keys or authentication overrides. Safe mode disables user
+customizations, hooks, skills, plugins, MCP, and automatic memory. Managed machine policy can still
+apply.
 
 Claude task runs expose Read, Glob, Grep, Edit, Write, and sandboxed Bash. They use restricted mode
 and `acceptEdits`. Unsandboxed Bash fallback is disabled. Assessments expose only Read, Glob, and
@@ -372,13 +435,15 @@ a separate [Codex home](https://learn.chatgpt.com/docs/config-file/config-advanc
 ```sh
 vp run verify:agent-ui
 vp run verify
-vp -C experiments/starter run verify
+vp exec pnpm --dir experiments/starter run verify
 ```
 
 The Rust tests run in memory. They check log records split across reads, token totals, missing
 usage, completion rules, source changes, ID validation, and process-result classification. UI tests
 check search, stable selection, small viewports, scroll extent, preview states, and mouse targets.
-They render into Ratatui memory buffers. Task tests parse TOML and apply package settings to JSON in
+They render into Ratatui memory buffers. Group tests check navigation boundaries, search, mouse
+rows, small windows, comparison scope, and queued or failed summaries. Queue tests check capacity,
+settings, and cancellation in memory. Task tests parse TOML and apply package settings to JSON in
 memory. They do not install packages or run an agent. Expected results come from fixed examples. The
 tests do not create files, start child processes, change the host environment, or open browsers or
 editors. There are no temporary project fixtures or shell test programs.
@@ -392,9 +457,10 @@ The TUI uses Chrono for local date conversion. Ratatui remains pinned to 0.30.2.
 `unstable-rendered-line-info` feature supplies the wrapped line count used for scrolling and mouse
 targets. Review this feature when updating Ratatui.
 
-The `verify:agent-ui` task runs all format, Clippy, and Rust test checks without Vite+ caching.
-Cargo and web build commands still write normal build output and tool caches. The no-file rule
-applies to test execution, not compilation.
+The `verify:agent-ui` task runs format, Clippy, Rust tests, and `tasks --check` without Vite+
+caching. The task catalog check reads repository inputs. It does not start a task run. Cargo and web
+build commands still write normal build output and tool caches. The no-file rule applies to test
+execution, not compilation.
 
 The installed Codex version marks `skip_host_skill_discovery` as under development. The app enables
 it to prevent host skill discovery. Its warning remains visible in activity and raw events.
@@ -402,16 +468,30 @@ Configuration separation needs a live check after provider CLI updates.
 
 ### Live checks on the run laptop
 
-The provider refactor has no live execution proof yet. Use a separate output folder for these
-checks.
+On 2026-09-14, Claude Code 2.1.270 completed the smoke task with Sonnet 5 and high effort. A
+separate live task used Read, Glob, Grep, Edit, Write, and Bash. It read task instructions, ran Node
+and ripgrep, and passed the generated app verification. Claude also completed a comparison
+assessment without tool denials. Codex 0.154.0 completed the smoke task with its default model.
+These checks used the local account. They do not prove access to every listed model.
+
+Use a separate output folder for further checks.
 
 1. Run `providers` and each provider's `doctor`. Check the installed CLI versions.
 2. Run each provider's `login`. Use a model that the account can access.
 3. Run a small task through each provider. Check the requested model, effort, usage, and USD cost.
 4. Check that Claude receives the task's `AGENTS.md` and that required sandboxed tools can run.
-5. Compare the two tasks. Run an assessment through each provider. Confirm that source files do not
-   change.
+5. Compare two variants from the same group. Run an assessment through each provider. Confirm that
+   source files do not change.
 6. Cancel a run. Check partial evidence and that the owned process group stops.
 7. Start a replacement with invalid settings or missing login. Confirm that old output remains.
 
 See [the provider boundary](ARCHITECTURE.md#provider-boundary) for the extension steps.
+
+### Group UI check
+
+On 2026-09-16, a separate manual terminal check used a temporary project and copied smoke reports.
+Enter, Esc, arrow keys, group and task mouse selection, pair selection, and view switching worked. A
+six-task group used a missing provider binary to exercise queue dispatch and failed-run handling.
+All six tasks reached a failed result, including tasks that waited for a free slot. The copied smoke
+results remained ready. This check did not run a provider or establish successful group execution
+with a live model.

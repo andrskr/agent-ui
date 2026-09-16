@@ -1,5 +1,5 @@
 use crate::report::Report;
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,11 +14,16 @@ pub struct Pair {
     pub other: RunRef,
 }
 impl Pair {
+    pub fn validate(&self) -> Result<()> {
+        crate::task::comparison_group(&self.reference.task, &self.other.task)?;
+        Ok(())
+    }
     pub fn uses_task(&self, task: &str) -> bool {
         self.reference.task == task || self.other.task == task
     }
     pub fn is_current(&self, current: &BTreeMap<String, String>) -> bool {
-        current.get(&self.reference.task) == Some(&self.reference.run)
+        self.validate().is_ok()
+            && current.get(&self.reference.task) == Some(&self.reference.run)
             && current.get(&self.other.task) == Some(&self.other.run)
     }
 }
@@ -114,7 +119,7 @@ pub struct Comparison {
 }
 impl Comparison {
     pub fn new(reference: Report, other: Report) -> Result<Self> {
-        ensure!(reference.task != other.task, "Select two different tasks");
+        crate::task::comparison_group(&reference.task, &other.task)?;
         let a = &reference;
         let b = &other;
         let pair = Pair {

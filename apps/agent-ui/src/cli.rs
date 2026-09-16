@@ -41,13 +41,22 @@ enum Action {
         #[arg(long, default_value_t = 36)]
         height: u16,
     },
-    /// List available task IDs.
-    Tasks,
+    /// List task IDs in <group>--<variant> form.
+    Tasks {
+        /// Validate task names and inputs without opening run storage.
+        #[arg(long)]
+        check: bool,
+    },
     /// Replace the task's previous output with a fresh run. Old output is deleted before execution.
-    Run { task: String },
-    /// Compare the latest results of two tasks. No agent runs unless --assess is set.
+    Run {
+        #[arg(value_parser = task_id)]
+        task: String,
+    },
+    /// Compare two variants from the same group. No agent runs unless --assess is set.
     Compare {
+        #[arg(value_parser = task_id)]
         reference: String,
+        #[arg(value_parser = task_id)]
         other: String,
         /// Start a separate read-only agent assessment. This uses subscription tokens.
         #[arg(long, conflicts_with = "saved")]
@@ -57,15 +66,20 @@ enum Action {
         saved: bool,
     },
     /// Print the task status and its latest JSON report.
-    Show { task: String },
+    Show {
+        #[arg(value_parser = task_id)]
+        task: String,
+    },
     /// Open run files in VS Code.
     Open {
+        #[arg(value_parser = task_id)]
         task: String,
         #[arg(value_enum, default_value = "code")]
         target: Artifact,
     },
     /// Start a dev server until Ctrl+C. Each preview gets a separate port.
     Preview {
+        #[arg(value_parser = task_id)]
         task: String,
         #[arg(long)]
         no_open: bool,
@@ -75,6 +89,11 @@ enum Action {
     /// Sign in to the selected provider.
     Login,
 }
+fn task_id(value: &str) -> Result<String, String> {
+    crate::task::TaskId::parse(value).map_err(|error| error.to_string())?;
+    Ok(value.to_owned())
+}
+
 fn project(cli: &Cli) -> Result<PathBuf> {
     if let Some(path) = &cli.project {
         return Ok(path.clone());
@@ -94,6 +113,16 @@ pub fn run() -> Result<()> {
         );
         return Ok(());
     }
+    if matches!(cli.command, Some(Action::Tasks { check: true })) {
+        let project = crate::project::Project::open(project(&cli)?)?;
+        let tasks = project.tasks()?;
+        for task in &tasks {
+            project.task(task)?;
+            println!("{task}");
+        }
+        println!("Checked {} task(s).", tasks.len());
+        return Ok(());
+    }
     let root = cli
         .data_dir
         .clone()
@@ -105,7 +134,7 @@ pub fn run() -> Result<()> {
         height: 36,
     }) {
         Action::Providers => unreachable!(),
-        Action::Tasks => {
+        Action::Tasks { .. } => {
             for task in runtime.task_views()? {
                 println!("{:<28} {}", task.id, task.status());
             }
@@ -240,6 +269,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn task_commands_require_group_and_variant_names() {
+        for action in ["run", "show", "open", "preview"] {
+            assert!(Cli::try_parse_from(["agent-ui", action, "smoke--baseline"]).is_ok());
+            assert!(Cli::try_parse_from(["agent-ui", action, "smoke"]).is_err());
+        }
+        assert!(
+            Cli::try_parse_from([
+                "agent-ui",
+                "compare",
+                "smoke--baseline",
+                "smoke--context",
+                "--saved"
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "agent-ui",
+                "compare",
+                "smoke--baseline",
+                "smoke",
+                "--assess"
+            ])
+            .is_err()
+        );
+        let cli = Cli::try_parse_from(["agent-ui", "tasks", "--check"]).unwrap();
+        assert!(matches!(cli.command, Some(Action::Tasks { check: true })));
+    }
+
+    #[test]
     fn ui_settings_keep_an_unavailable_tool_override_without_resolving_it() {
         let cli = Cli::try_parse_from([
             "agent-ui",
@@ -267,7 +326,7 @@ mod tests {
             "--model",
             "fable",
             "run",
-            "smoke",
+            "smoke--baseline",
         ])
         .unwrap();
         let settings = cli.settings().unwrap();
@@ -282,12 +341,18 @@ mod tests {
             "--effort",
             "ultra",
             "run",
-            "smoke",
+            "smoke--baseline",
         ])
         .unwrap();
         assert!(cli.settings().is_err());
-        let cli =
-            Cli::try_parse_from(["agent-ui", "--model", "gpt-6-astra", "run", "smoke"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "agent-ui",
+            "--model",
+            "gpt-6-astra",
+            "run",
+            "smoke--baseline",
+        ])
+        .unwrap();
         assert_eq!(cli.settings().unwrap().effort, "medium");
     }
 }

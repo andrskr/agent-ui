@@ -40,7 +40,7 @@ impl RunFiles {
         self.root.join("agent-report.md")
     }
 }
-pub fn valid_id(id: &str) -> Result<()> {
+pub fn valid_run_id(id: &str) -> Result<()> {
     ensure!(
         !id.is_empty()
             && id.len() <= 120
@@ -48,7 +48,7 @@ pub fn valid_id(id: &str) -> Result<()> {
             && id
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'),
-        "Use a task or run ID with letters, numbers, '-' or '_'"
+        "Use a run ID with letters, numbers, '-' or '_'"
     );
     Ok(())
 }
@@ -87,7 +87,7 @@ impl Store {
         })
     }
     pub fn dir(&self, id: &str) -> Result<PathBuf> {
-        valid_id(id)?;
+        valid_run_id(id)?;
         let path = self.root.join("runs").join(id);
         if path.exists() {
             ensure!(
@@ -119,7 +119,7 @@ impl Store {
         write_json(&self.root.join("current.json"), index)
     }
     pub fn task(&self, task: &str) -> Result<TaskView> {
-        valid_id(task)?;
+        crate::task::TaskId::parse(task)?;
         let index = self.index()?;
         let run = index.current(task).map(|id| self.load(id)).transpose()?;
         if let Some(run) = &run {

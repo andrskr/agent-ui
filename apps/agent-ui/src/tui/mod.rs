@@ -1,8 +1,12 @@
+mod compare;
 mod details;
+mod groups;
 mod input;
 mod layout;
 mod state;
+mod tabs;
 mod tasks;
+mod text;
 mod theme;
 mod view;
 
@@ -11,8 +15,10 @@ mod tests;
 
 use anyhow::Result;
 use crossterm::{
+    cursor::Show,
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
 use ratatui::prelude::*;
@@ -71,6 +77,27 @@ pub fn run(mut app: App) -> Result<()> {
                 Ok(true) => return Ok(()),
                 Ok(false) => {}
                 Err(e) => app.notice = format!("{e:#}"),
+            }
+            if let Some(settings) = app.take_login_request() {
+                disable_raw_mode()?;
+                execute!(
+                    io::stdout(),
+                    LeaveAlternateScreen,
+                    DisableMouseCapture,
+                    Show
+                )?;
+                println!(
+                    "\nStarting {} login. Follow the prompts.\n",
+                    settings.provider
+                );
+                let outcome = app.runtime.login(&settings);
+                enable_raw_mode()?;
+                execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                terminal.clear()?;
+                app.notice = match outcome {
+                    Ok(()) => format!("{} login complete. Run the task again.", settings.provider),
+                    Err(error) => format!("Login failed: {error:#}"),
+                };
             }
         }
     })

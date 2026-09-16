@@ -1,4 +1,4 @@
-use crate::{storage::valid_id, task::TaskConfig};
+use crate::task::{TaskConfig, TaskId};
 use anyhow::{Context, Result, ensure};
 use std::{
     fs,
@@ -35,7 +35,7 @@ impl Project {
                 && entry.file_type()?.is_dir()
                 && entry.path().join("task.md").is_file()
             {
-                valid_id(&id)?;
+                TaskId::parse(&id)?;
                 tasks.push(id);
             }
         }
@@ -44,7 +44,7 @@ impl Project {
     }
 
     pub fn task(&self, id: &str) -> Result<TaskSource> {
-        valid_id(id)?;
+        TaskId::parse(id)?;
         let path = self.root.join("experiments/tasks").join(id);
         ensure!(
             !id.starts_with('_') && path.join("task.md").is_file(),

@@ -25,9 +25,6 @@ pub(super) fn modal_rect(area: Rect) -> Rect {
         20.min(area.height),
     )
 }
-pub(super) fn new_button(area: Rect) -> Rect {
-    Rect::new(area.right().saturating_sub(19), area.y + 1, 17, 1)
-}
 pub(super) fn search_area(area: Rect) -> Rect {
     Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(3), 1)
 }
@@ -53,9 +50,6 @@ pub(super) fn detail_parts(area: Rect) -> [Rect; 4] {
         ),
     ]
 }
-pub(super) fn compare_button(area: Rect) -> Rect {
-    Rect::new(area.right().saturating_sub(38), area.y + 1, 17, 1)
-}
 pub(super) fn picker_list(area: Rect) -> Rect {
     Rect::new(
         area.x + 4,
@@ -64,11 +58,12 @@ pub(super) fn picker_list(area: Rect) -> Rect {
         area.height.saturating_sub(8),
     )
 }
-pub(super) fn action_areas(area: Rect) -> [Rect; 3] {
+pub(super) fn action_areas(area: Rect) -> [Rect; 4] {
     Layout::horizontal([
-        Constraint::Min(14),
-        Constraint::Length(14),
+        Constraint::Length(9),
+        Constraint::Min(12),
         Constraint::Length(8),
+        Constraint::Length(6),
     ])
     .spacing(1)
     .areas(area)
@@ -84,6 +79,12 @@ pub(super) fn modal_field(area: Rect, index: usize) -> Rect {
 pub(super) fn modal_submit(area: Rect) -> Rect {
     Rect::new(area.x + 4, area.y + 16, 24, 1)
 }
-pub(super) fn content_area(area: Rect) -> Rect {
-    detail_parts(regions(area).1[1])[3]
+
+pub(super) fn group_actions(area: Rect) -> [Rect; 2] {
+    Layout::horizontal([Constraint::Percentage(50); 2])
+        .spacing(1)
+        .areas(area)
+}
+pub(super) fn content_area(area: Rect, _group: bool, _comparing: bool) -> Rect {
+    detail_parts(area)[3]
 }

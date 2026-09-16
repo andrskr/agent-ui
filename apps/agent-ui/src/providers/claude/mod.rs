@@ -12,7 +12,7 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::BTreeMap,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -21,18 +21,30 @@ pub(crate) struct Claude;
 fn config_dir(store: &Store) -> PathBuf {
     store.root().join("private/providers/claude")
 }
-fn auth_command(binary: &Path, config: &Path) -> Command {
+fn auth_environment(config: &Path) -> Result<BTreeMap<String, String>> {
+    let home = env::var("HOME").context("Claude login needs the macOS HOME")?;
+    let user = env::var("USER").context("Claude login needs the macOS USER")?;
+    ensure!(
+        !home.is_empty() && !user.is_empty(),
+        "Claude login needs HOME and USER"
+    );
+    Ok(identity_environment(config, &home, &user))
+}
+fn identity_environment(config: &Path, home: &str, user: &str) -> BTreeMap<String, String> {
+    // Claude uses HOME and USER to find the macOS Keychain login.
+    BTreeMap::from([
+        ("HOME".into(), home.into()),
+        ("USER".into(), user.into()),
+        ("LOGNAME".into(), user.into()),
+        ("CLAUDE_CONFIG_DIR".into(), config.display().to_string()),
+    ])
+}
+fn auth_command(binary: &Path, environment: &BTreeMap<String, String>) -> Command {
     let mut command = Command::new(binary);
     command
-        .env("CLAUDE_CONFIG_DIR", config)
-        .env_remove("ANTHROPIC_API_KEY")
-        .env_remove("ANTHROPIC_AUTH_TOKEN")
-        .env_remove("CLAUDE_CODE_OAUTH_TOKEN")
-        .env_remove("CLAUDE_CODE_SIMPLE")
-        .env_remove("CLAUDE_CODE_USE_BEDROCK")
-        .env_remove("CLAUDE_CODE_USE_VERTEX")
-        .env_remove("CLAUDE_CODE_USE_FOUNDRY")
-        .env_remove("ANTHROPIC_BASE_URL");
+        .env_clear()
+        .envs(environment)
+        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
     command
 }
 impl Provider for Claude {
@@ -45,6 +57,11 @@ impl Provider for Claude {
             .canonicalize()
             .context("Cannot resolve the Claude Code binary")
     }
+    fn bundled_rg(&self, binary: &Path) -> Option<PathBuf> {
+        // Claude Code runs ripgrep from its own binary when it is invoked as `rg`. The sandbox
+        // symlinks this path to `rg`, so the symlink name becomes argv0 and the binary acts as rg.
+        Some(binary.to_path_buf())
+    }
     fn preflight(&self, store: &Store, binary: &Path) -> Result<()> {
         let version = output(Command::new(binary).arg("--version"))?;
         check_version(&version)?;
@@ -53,8 +70,10 @@ impl Provider for Claude {
             config.is_dir(),
             "Claude login is missing. Run 'agent-ui --provider claude login'"
         );
-        output(auth_command(binary, &config).args(["auth", "status"]))
+        let environment = auth_environment(&config)?;
+        let status = output(auth_command(binary, &environment).args(["auth", "status"]))
             .context("Claude login is unavailable. Run 'agent-ui --provider claude login'")?;
+        check_login(&status)?;
         Ok(())
     }
     fn prepare(
@@ -65,10 +84,7 @@ impl Provider for Claude {
         request: &Request<'_>,
     ) -> Result<Box<dyn Session>> {
         let mut local = LocalSession::new(store, id, request.cwd, tools)?;
-        local.env.insert(
-            "CLAUDE_CONFIG_DIR".into(),
-            config_dir(store).display().to_string(),
-        );
+        local.env.extend(auth_environment(&config_dir(store))?);
         let settings = runtime_settings(&config_dir(store));
         write_json(&request.evidence.join("claude-settings.json"), &settings)?;
         Ok(Box::new(ClaudeSession {
@@ -78,11 +94,11 @@ impl Provider for Claude {
         }))
     }
     fn login(&self, store: &Store, binary: &Path) -> Result<()> {
-        let _lock = store.lock()?;
         let config = config_dir(store);
         private_dir(&config)?;
+        let environment = auth_environment(&config)?;
         ensure!(
-            auth_command(binary, &config)
+            auth_command(binary, &environment)
                 .args(["auth", "login"])
                 .status()?
                 .success(),
@@ -95,6 +111,15 @@ impl Provider for Claude {
             crate::cost::unavailable("API cost unavailable: Claude Code has not reported a cost.")
         })
     }
+}
+fn check_login(raw: &str) -> Result<()> {
+    let status: serde_json::Value =
+        serde_json::from_str(raw).context("Cannot read the Claude login status")?;
+    ensure!(
+        status["loggedIn"] == true,
+        "Claude login is unavailable. Run 'agent-ui --provider claude login'"
+    );
+    Ok(())
 }
 fn check_version(raw: &str) -> Result<()> {
     let version = raw
@@ -200,6 +225,48 @@ fn command_args(request: &Request<'_>, session_id: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn login_and_execution_keep_the_keychain_identity_without_inherited_auth_overrides() {
+        let identity = identity_environment(
+            Path::new("/private/providers/claude"),
+            "/Users/tester",
+            "tester",
+        );
+        let command = auth_command(Path::new("/bin/claude"), &identity);
+        let environment: BTreeMap<_, _> = command.get_envs().collect();
+        assert_eq!(environment.len(), 5);
+        for (key, value) in [
+            ("HOME", "/Users/tester"),
+            ("USER", "tester"),
+            ("LOGNAME", "tester"),
+            ("CLAUDE_CONFIG_DIR", "/private/providers/claude"),
+            ("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+        ] {
+            assert_eq!(
+                environment[std::ffi::OsStr::new(key)],
+                Some(std::ffi::OsStr::new(value))
+            );
+        }
+    }
+    #[test]
+    fn login_status_requires_an_explicit_signed_in_result() {
+        assert!(check_login(r#"{"loggedIn":true,"authMethod":"claude.ai"}"#).is_ok());
+        for status in [
+            r#"{"loggedIn":false}"#,
+            r#"{"loggedIn":"true"}"#,
+            "{}",
+            "Not logged in",
+        ] {
+            assert!(check_login(status).is_err());
+        }
+    }
+    #[test]
+    fn bundled_ripgrep_is_the_claude_binary() {
+        assert_eq!(
+            Claude.bundled_rg(Path::new("/opt/claude/bin/claude")),
+            Some(PathBuf::from("/opt/claude/bin/claude"))
+        );
+    }
     #[test]
     fn task_and_assessment_commands_keep_distinct_tool_permissions() {
         let settings = crate::settings::Settings::for_provider("claude").unwrap();

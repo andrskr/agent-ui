@@ -1,7 +1,9 @@
+static EMPTY_ERRORS: std::sync::LazyLock<std::collections::BTreeMap<String, String>> =
+    std::sync::LazyLock::new(std::collections::BTreeMap::new);
 use super::{
     details::content_lines,
     layout::{action_areas, detail_parts, regions},
-    state::{DetailTab, Side},
+    state::DetailTab,
     tasks::{TaskRow, Tasks},
     view::{PreviewInfo, Screen, draw_screen},
 };
@@ -53,22 +55,90 @@ fn tasks() -> Tasks {
     let mut tasks = Tasks::default();
     tasks.replace(vec![
         TaskView {
-            id: "bare".into(),
-            run: Some(report("a", "bare", 1_789_160_000_000)),
+            id: "smoke--baseline".into(),
+            run: Some(report("a", "smoke--baseline", 1_789_160_000_000)),
             cleanup_pending: false,
         },
         TaskView {
-            id: "guided".into(),
-            run: Some(report("b", "guided", 1_789_159_000_000)),
+            id: "smoke--context".into(),
+            run: Some(report("b", "smoke--context", 1_789_159_000_000)),
             cleanup_pending: false,
         },
         TaskView {
-            id: "empty".into(),
+            id: "smoke--check".into(),
             run: None,
             cleanup_pending: false,
         },
     ]);
     tasks
+}
+
+#[test]
+fn comparison_picker_keeps_only_other_variants_and_includes_missing_runs() {
+    let mut tasks = tasks();
+    tasks.items.push(TaskView {
+        id: "dashboard--baseline".into(),
+        run: Some(report("unrelated", "dashboard--baseline", 0)),
+        cleanup_pending: false,
+    });
+    tasks.set_query("baseline".into());
+    let mut picker = tasks.comparison_picker("smoke--baseline").unwrap();
+    assert_eq!(
+        picker
+            .items
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect::<Vec<_>>(),
+        ["smoke--check", "smoke--context"]
+    );
+    assert!(picker.current().unwrap().run.is_none());
+    picker.navigate(1);
+    assert_eq!(picker.current().unwrap().id, "smoke--context");
+    picker.set_query("dashboard".into());
+    assert!(picker.current().is_none());
+    assert!(
+        tasks
+            .comparison_picker("dashboard--baseline")
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[test]
+fn saved_comparison_restores_only_available_variants_from_the_same_group() {
+    let tasks = tasks();
+    let mut selection = Selection {
+        task: Some("smoke--baseline".into()),
+        pair: Some(TaskPair::new("smoke--context".into(), "smoke--baseline".into()).unwrap()),
+        comparing: true,
+        task_level: true,
+    };
+    assert!(selection.reconcile(&tasks.items).is_none());
+    assert!(selection.comparing);
+    assert_eq!(selection.pair.as_ref().unwrap().reference, "smoke--context");
+
+    for other in [
+        "dashboard--baseline",
+        "smoke--missing",
+        "smoke--check",
+        "smoke--baseline",
+    ] {
+        let mut saved: Selection = serde_json::from_value(serde_json::json!({
+            "task": "removed--task",
+            "pair": {"reference": "smoke--baseline", "other": other},
+            "comparing": true
+        }))
+        .unwrap();
+        assert!(saved.reconcile(&tasks.items).is_some());
+        assert!(!saved.comparing);
+        assert!(saved.pair.is_none());
+        assert_eq!(saved.task.as_deref(), Some("smoke--baseline"));
+        let reloaded: Selection =
+            serde_json::from_value(serde_json::to_value(saved).unwrap()).unwrap();
+        assert!(!reloaded.comparing);
+        assert!(reloaded.pair.is_none());
+    }
 }
 fn screen<'a>(tasks: &'a Tasks, selection: &'a Selection) -> Screen<'a> {
     Screen {
@@ -79,13 +149,12 @@ fn screen<'a>(tasks: &'a Tasks, selection: &'a Selection) -> Screen<'a> {
         notice: "",
         note: "Added workspace fields and a save confirmation.",
         preview: None,
-        active: false,
         selection,
-        side: Side::Reference,
         comparison: None,
-        assessment: "",
         details: None,
         starting: Vec::new(),
+        queued: Vec::new(),
+        queue_errors: std::sync::LazyLock::force(&EMPTY_ERRORS),
     }
 }
 fn render(screen: &Screen<'_>, width: u16, height: u16) -> String {
@@ -104,12 +173,15 @@ fn render(screen: &Screen<'_>, width: u16, height: u16) -> String {
 #[test]
 fn replacing_a_run_keeps_task_selection_and_includes_tasks_without_runs() {
     let mut tasks = tasks();
-    tasks.select_id("guided");
+    tasks.select_id("smoke--context");
     let mut changed = tasks.items.clone();
-    changed.iter_mut().find(|t| t.id == "guided").unwrap().run =
-        Some(report("replacement", "guided", 1_800_000_000_000));
+    changed
+        .iter_mut()
+        .find(|t| t.id == "smoke--context")
+        .unwrap()
+        .run = Some(report("replacement", "smoke--context", 1_800_000_000_000));
     tasks.replace(changed);
-    assert_eq!(tasks.current().unwrap().id, "guided");
+    assert_eq!(tasks.current().unwrap().id, "smoke--context");
     assert_eq!(
         tasks.current().unwrap().run.as_ref().unwrap().id,
         "replacement"
@@ -120,7 +192,7 @@ fn replacing_a_run_keeps_task_selection_and_includes_tasks_without_runs() {
             .iter()
             .map(|t| t.id.as_str())
             .collect::<Vec<_>>(),
-        ["bare", "empty", "guided"]
+        ["smoke--baseline", "smoke--check", "smoke--context"]
     );
 }
 #[test]
@@ -132,7 +204,12 @@ fn active_run_shows_a_live_status_with_step_and_elapsed() {
         provider: "codex".into(),
         binary: None,
     };
-    let mut run = Report::new("live".into(), "bare".into(), "unused/app".into(), &settings);
+    let mut run = Report::new(
+        "live".into(),
+        "smoke--baseline".into(),
+        "unused/app".into(),
+        &settings,
+    );
     run.created_at_ms = crate::report::now().saturating_sub(5_000);
     run.step = Some("Installing packages".into());
     run.record("Copied the starter and task inputs");
@@ -153,14 +230,17 @@ fn active_run_shows_a_live_status_with_step_and_elapsed() {
     assert!(text.contains("elapsed"));
 
     let mut items = tasks().items.clone();
-    items.iter_mut().find(|t| t.id == "bare").unwrap().run = Some(run);
+    items
+        .iter_mut()
+        .find(|t| t.id == "smoke--baseline")
+        .unwrap()
+        .run = Some(run);
     let mut tasks = Tasks::default();
     tasks.replace(items);
-    tasks.select_id("bare");
+    tasks.select_id("smoke--baseline");
     let selection = Selection::default();
     let mut screen = screen(&tasks, &selection);
     screen.tab = DetailTab::Activity;
-    screen.active = true;
     let output = render(&screen, 120, 40);
     assert!(output.contains("Installing packages"));
     assert!(!output.contains("b Preview"));
@@ -168,11 +248,10 @@ fn active_run_shows_a_live_status_with_step_and_elapsed() {
 #[test]
 fn a_starting_task_shows_a_starting_placeholder_before_the_report_exists() {
     let mut tasks = tasks();
-    tasks.select_id("empty");
+    tasks.select_id("smoke--check");
     let selection = Selection::default();
     let mut screen = screen(&tasks, &selection);
-    screen.active = true;
-    screen.starting = vec!["empty".into()];
+    screen.starting = vec!["smoke--check".into()];
     let output = render(&screen, 120, 40);
     assert!(output.contains("Starting…"));
     assert!(!output.contains("No current run for this task."));
@@ -188,7 +267,7 @@ fn two_active_runs_show_an_aggregate_footer_with_each_task() {
         binary: None,
     };
     let mut items = tasks().items.clone();
-    for id in ["bare", "guided"] {
+    for id in ["smoke--baseline", "smoke--context"] {
         let mut run = Report::new(id.into(), id.into(), "unused/app".into(), &settings);
         run.state = State::Running;
         run.created_at_ms = crate::report::now().saturating_sub(3_000);
@@ -197,48 +276,54 @@ fn two_active_runs_show_an_aggregate_footer_with_each_task() {
     }
     let mut tasks = Tasks::default();
     tasks.replace(items);
-    tasks.select_id("bare");
+    tasks.select_id("smoke--baseline");
     let selection = Selection::default();
-    let mut screen = screen(&tasks, &selection);
-    screen.active = true;
+    let screen = screen(&tasks, &selection);
     let output = render(&screen, 120, 40);
     assert!(output.contains("2 running"));
-    assert!(output.contains("bare"));
-    assert!(output.contains("guided"));
+    assert!(output.contains("smoke--baseline"));
+    assert!(output.contains("smoke--context"));
 }
 #[test]
 fn search_filters_tasks_and_handles_no_matches() {
     let mut tasks = tasks();
-    tasks.set_query("EMPTY not run".into());
-    assert_eq!(tasks.current().unwrap().id, "empty");
+    tasks.set_query("CHECK not run".into());
+    assert_eq!(tasks.current().unwrap().id, "smoke--check");
     tasks.navigate(1);
-    assert_eq!(tasks.current().unwrap().id, "empty");
+    assert_eq!(tasks.current().unwrap().id, "smoke--check");
     tasks.set_query("no-such-task".into());
     assert!(tasks.current().is_none());
     assert!(tasks.window(20).is_empty());
     tasks.set_query(String::new());
-    assert_eq!(tasks.current().unwrap().id, "bare");
+    assert_eq!(tasks.current().unwrap().id, "smoke--baseline");
     tasks.navigate(100);
-    assert_eq!(tasks.current().unwrap().id, "guided");
+    assert_eq!(tasks.current().unwrap().id, "smoke--context");
 }
 #[test]
 fn small_task_window_keeps_all_three_lines_of_the_selected_task() {
     let mut tasks = tasks();
-    tasks.select_id("guided");
+    tasks.select_id("smoke--context");
     let visible: Vec<_> = tasks
         .window(4)
         .iter()
         .filter_map(|row| match row {
             TaskRow::Task { index, line } => Some((tasks.items[*index].id.as_str(), *line)),
-            TaskRow::Gap => None,
+            TaskRow::Gap | TaskRow::Group { .. } => None,
         })
         .collect();
-    assert_eq!(visible, [("guided", 0), ("guided", 1), ("guided", 2)]);
+    assert_eq!(
+        visible,
+        [
+            ("smoke--context", 0),
+            ("smoke--context", 1),
+            ("smoke--context", 2)
+        ]
+    );
 }
 #[test]
-fn task_without_output_shows_prompt_and_no_preview_actions() {
+fn task_without_output_exposes_prompt_in_setup_and_has_no_preview() {
     let mut tasks = tasks();
-    tasks.select_id("empty");
+    tasks.select_id("smoke--check");
     let selection = Selection::default();
     let mut screen = screen(&tasks, &selection);
     let details = crate::task_result::TaskDetails {
@@ -249,21 +334,25 @@ fn task_without_output_shows_prompt_and_no_preview_actions() {
     };
     screen.details = Some(&details);
     let output = render(&screen, 100, 32);
-    assert!(output.contains("Build workspace settings."));
+    assert!(output.contains("No saved result"));
+    assert!(!output.contains("Build workspace settings."));
+    screen.tab = DetailTab::Setup;
+    let setup = render(&screen, 100, 32);
+    assert!(setup.contains("Build workspace settings."));
     assert!(output.contains("Not run"));
-    assert!(!output.contains("e Open code"));
+    assert!(!output.contains("e Code"));
     assert!(!output.contains("b Preview"));
 }
 #[test]
-fn overview_shows_measured_values_once_and_classifies_source_changes() {
+fn overview_shows_measured_values_once_without_source_file_noise() {
     let tasks = tasks();
     let selection = Selection::default();
     let output = render(&screen(&tasks, &selection), 150, 44);
     for value in ["24,308", "14,848", "418", "17.3s", "3.5s", "2.1s"] {
         assert_eq!(output.matches(value).count(), 1, "{value}");
     }
-    assert!(output.contains("M  src/app.tsx"));
-    assert!(output.contains("A  src/settings.tsx"));
+    assert!(!output.contains("src/app.tsx"));
+    assert!(!output.contains("src/settings.tsx"));
     assert!(output.contains("Added workspace fields and a save confirmation."));
     assert!(!output.contains("Human review"));
 }
@@ -275,7 +364,7 @@ fn narrow_overview_scrolls_to_the_note_while_actions_stay_visible() {
     screen.scroll = Some(u16::MAX);
     let output = render(&screen, 76, 24);
     assert!(output.contains("a Open full note"));
-    assert!(output.contains("e Open code"));
+    assert!(output.contains("e Code"));
     assert!(output.contains("b Preview"));
     assert!(!output.contains("24,308"));
 }
@@ -331,37 +420,46 @@ fn long_errors_and_activity_are_included_in_the_scroll_extent() {
 }
 
 #[test]
-fn comparison_side_selects_the_correct_preview_and_keeps_values_distinct() {
+fn comparison_has_its_own_content_and_does_not_use_the_task_tab_or_preview() {
     let tasks = tasks();
     let selection = Selection {
-        task: Some("bare".into()),
-        pair: Some(TaskPair::new("bare".into(), "guided".into()).unwrap()),
+        task: Some("smoke--baseline".into()),
+        pair: Some(TaskPair::new("smoke--baseline".into(), "smoke--context".into()).unwrap()),
         comparing: true,
+        task_level: true,
     };
-    let mut comparison = Comparison::new(
-        tasks.items[0].run.clone().unwrap(),
-        tasks.items[2].run.clone().unwrap(),
-    )
-    .unwrap();
-    comparison.other.usage.as_mut().unwrap().input_tokens = 30_000;
-    comparison = Comparison::new(comparison.reference, comparison.other).unwrap();
+    let mut other = tasks.items[2].run.clone().unwrap();
+    other.usage.as_mut().unwrap().input_tokens = 30_000;
+    let comparison = Comparison::new(tasks.items[0].run.clone().unwrap(), other).unwrap();
     let mut screen = screen(&tasks, &selection);
     screen.comparison = Some(&comparison);
     screen.preview = Some(PreviewInfo {
         id: "b",
         ready: true,
     });
-    let output = render(&screen, 150, 44);
-    assert!(output.contains("b Preview"));
-    assert!(!output.contains("b Open preview"));
-    assert_eq!(output.matches("24,308").count(), 1);
-    assert_eq!(output.matches("30,000").count(), 1);
-    screen.side = Side::Other;
-    assert!(render(&screen, 150, 44).contains("b Open preview"));
-    screen.tab = DetailTab::Evidence;
-    let output = render(&screen, 150, 44);
-    assert!(output.contains("\"id\": \"b\""));
-    assert!(!output.contains("\"id\": \"a\""));
+    for tab in DetailTab::ALL {
+        screen.tab = tab;
+        let output = render(&screen, 150, 44);
+        assert_eq!(output.matches("24,308").count(), 1);
+        assert_eq!(output.matches("30,000").count(), 1);
+        for text in [
+            "b Preview",
+            "Open preview",
+            "Open code",
+            "Activity",
+            "Evidence",
+            "n Run",
+            "c Compare",
+            "v Side",
+            "Change pair",
+        ] {
+            assert!(!output.contains(text), "{text}: {output}");
+        }
+        assert!(output.contains("A: Baseline"));
+        assert!(output.contains("B: Context"));
+        assert!(output.contains("s Swap"));
+        assert!(!output.contains("Assess pair"));
+    }
 }
 
 #[test]
@@ -369,7 +467,7 @@ fn cost_values_render_for_single_runs_and_comparisons_at_supported_widths() {
     let mut tasks = tasks();
     for task in &mut tasks.items {
         if let Some(run) = &mut task.run {
-            run.model_requested = if task.id == "bare" {
+            run.model_requested = if task.id == "smoke--baseline" {
                 "gpt-5.6-sol"
             } else {
                 "gpt-5.6-luna"
@@ -386,9 +484,10 @@ fn cost_values_render_for_single_runs_and_comparisons_at_supported_widths() {
         }
     }
     let mut selection = Selection {
-        task: Some("bare".into()),
-        pair: Some(TaskPair::new("bare".into(), "guided".into()).unwrap()),
+        task: Some("smoke--baseline".into()),
+        pair: Some(TaskPair::new("smoke--baseline".into(), "smoke--context".into()).unwrap()),
         comparing: false,
+        task_level: true,
     };
     for (width, height) in [(76, 24), (150, 44)] {
         let output = render(&screen(&tasks, &selection), width, height);
@@ -517,4 +616,354 @@ fn models_without_effort_have_no_value_control() {
         assert!(row.starts_with("Not supported"));
         assert!(!row.contains('‹') && !row.contains('›'));
     }
+}
+
+fn grouped_tasks() -> Tasks {
+    let mut result = Tasks::grouped();
+    let mut items = tasks().items;
+    for id in ["alpha--first", "alpha--second", "zulu--only"] {
+        items.push(TaskView {
+            id: id.into(),
+            run: None,
+            cleanup_pending: false,
+        });
+    }
+    result.replace(items);
+    result
+}
+
+#[test]
+fn group_navigation_requires_entry_and_stays_inside_the_group() {
+    let mut tasks = grouped_tasks();
+    assert!(tasks.is_group());
+    assert_eq!(tasks.group(), Some("alpha"));
+    tasks.navigate(1);
+    assert_eq!(tasks.group(), Some("smoke"));
+    tasks.enter();
+    tasks.navigate(1);
+    assert_eq!(tasks.current().unwrap().id, "smoke--check");
+    tasks.navigate(100);
+    assert_eq!(tasks.current().unwrap().id, "smoke--context");
+    tasks.navigate(-100);
+    assert_eq!(tasks.current().unwrap().id, "smoke--baseline");
+    tasks.leave();
+    tasks.navigate(1);
+    assert_eq!(tasks.group(), Some("zulu"));
+    assert!(tasks.is_group());
+}
+
+#[test]
+fn group_search_and_refresh_keep_membership_and_selection() {
+    let mut tasks = grouped_tasks();
+    tasks.select_id("smoke--context");
+    tasks.enter();
+    tasks.set_query("smoke READY".into());
+    assert_eq!(tasks.current().unwrap().id, "smoke--context");
+    assert_eq!(tasks.members().len(), 3);
+    let mut items = tasks.items.clone();
+    items.retain(|t| t.id != "smoke--context");
+    tasks.replace(items);
+    assert_eq!(tasks.current().unwrap().id, "smoke--baseline");
+    assert!(!tasks.is_group());
+    tasks.set_query("zulu".into());
+    assert!(tasks.is_group());
+    assert_eq!(tasks.group(), Some("zulu"));
+    tasks.set_query("no match".into());
+    assert!(tasks.group().is_none());
+    assert!(tasks.window(8).is_empty());
+}
+
+#[test]
+fn mouse_rows_choose_group_or_task_and_small_windows_keep_parent_visible() {
+    let mut tasks = grouped_tasks();
+    tasks.select_id("smoke--context");
+    tasks.enter();
+    let rows = tasks.window(3);
+    assert_eq!(
+        rows,
+        [
+            TaskRow::Group { index: 2 },
+            TaskRow::Task { index: 4, line: 0 },
+            TaskRow::Task { index: 4, line: 1 }
+        ]
+    );
+    assert!(tasks.select_row(&rows[0]));
+    assert!(tasks.is_group());
+    assert_eq!(tasks.group(), Some("smoke"));
+    assert!(tasks.select_row(&rows[2]));
+    assert!(!tasks.is_group());
+    assert_eq!(tasks.current().unwrap().id, "smoke--context");
+    assert!(!tasks.select_row(&TaskRow::Gap));
+}
+
+#[test]
+fn reference_picker_ignores_search_but_stays_inside_selected_group() {
+    let mut tasks = grouped_tasks();
+    tasks.set_query("smoke context".into());
+    let reference = tasks.reference_picker();
+    assert_eq!(
+        reference
+            .items
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect::<Vec<_>>(),
+        ["smoke--baseline", "smoke--check", "smoke--context"]
+    );
+    assert!(!reference.is_grouped());
+    let other = tasks.comparison_picker("smoke--context").unwrap();
+    assert_eq!(
+        other
+            .items
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect::<Vec<_>>(),
+        ["smoke--baseline", "smoke--check"]
+    );
+}
+
+#[test]
+fn group_overview_shows_all_members_and_pending_runs_do_not_count_as_ready() {
+    let mut tasks = grouped_tasks();
+    tasks.set_query("smoke baseline".into());
+    let selection = Selection::default();
+    let mut view = screen(&tasks, &selection);
+    view.queued = vec!["smoke--context".into()];
+    view.starting = vec!["smoke--baseline".into()];
+    for (width, height) in [(76, 24), (120, 36)] {
+        let output = render(&view, width, height);
+        assert!(output.contains("3 tasks · 0 ready"), "{output}");
+        assert!(
+            output
+                .lines()
+                .any(|row| row.contains("Baseline") && row.contains("Running")),
+            "{output}"
+        );
+        assert!(
+            output
+                .lines()
+                .any(|row| row.contains("Context") && row.contains("Queued")),
+            "{output}"
+        );
+        assert!(!output.contains("24,308"));
+        assert!(!output.contains("b Preview"));
+    }
+    let errors = std::collections::BTreeMap::from([(
+        "smoke--baseline".into(),
+        "Provider is unavailable".into(),
+    )]);
+    view.starting.clear();
+    view.queue_errors = &errors;
+    let output = render(&view, 120, 36);
+    assert!(
+        output
+            .lines()
+            .any(|row| row.contains("Baseline") && row.contains("Start failed"))
+    );
+    assert!(output.contains("Provider is unavailable"));
+    assert!(output.contains("3 tasks · 0 ready"));
+}
+
+#[test]
+fn group_comparison_keeps_both_results_and_its_navigation_at_supported_sizes() {
+    let mut tasks = grouped_tasks();
+    tasks.select_id("smoke--baseline");
+    let selection = Selection {
+        task: Some("smoke--baseline".into()),
+        pair: Some(TaskPair::new("smoke--baseline".into(), "smoke--context".into()).unwrap()),
+        comparing: true,
+        task_level: false,
+    };
+    let comparison = Comparison::new(
+        tasks.items[2].run.clone().unwrap(),
+        tasks.items[4].run.clone().unwrap(),
+    )
+    .unwrap();
+    let mut view = screen(&tasks, &selection);
+    view.comparison = Some(&comparison);
+    for (width, height) in [(76, 24), (120, 36)] {
+        let output = render(&view, width, height);
+        assert!(output.contains("Overview"));
+        assert!(output.contains("Compare"));
+        assert!(!output.contains("b Preview"));
+        assert!(!output.contains("n Run task"));
+        assert!(!output.contains("c Compare"));
+        assert!(!output.contains("Activity"));
+        assert!(!output.contains("Evidence"));
+        let panel = regions(Rect::new(0, 0, width, height)).1[1];
+        let parts = detail_parts(panel);
+        for tab in super::tabs::areas(parts[1], true) {
+            assert!(!tab.intersects(parts[0]));
+            assert!(!tab.intersects(parts[2]));
+            assert!(!tab.intersects(parts[3]));
+            assert!(tab.right() <= panel.right());
+        }
+    }
+}
+
+#[test]
+fn comparison_keys_cannot_trigger_task_or_agent_actions() {
+    use super::compare::{Action, key_action};
+    use crossterm::event::KeyCode;
+    for key in ['n', 'c', 'e', 'r', 'f', 'x', 'v', 'L', 'm', 'C'] {
+        assert_eq!(key_action(KeyCode::Char(key)), None, "{key}");
+    }
+    assert_eq!(key_action(KeyCode::Char('a')), Some(Action::SelectA));
+    assert_eq!(key_action(KeyCode::Char('b')), Some(Action::SelectB));
+    assert_eq!(key_action(KeyCode::Char('s')), Some(Action::Swap));
+    assert_eq!(key_action(KeyCode::PageDown), Some(Action::Scroll(10)));
+    assert_eq!(key_action(KeyCode::Esc), Some(Action::Back));
+    assert_eq!(key_action(KeyCode::Tab), None);
+}
+
+#[test]
+fn comparison_mouse_controls_do_not_cover_tabs_or_metrics() {
+    use super::compare::{Action, actions, mouse_action};
+    for (width, height) in [(76, 24), (120, 36), (180, 50)] {
+        let area = regions(Rect::new(0, 0, width, height)).1[1];
+        let [title, tabs, toolbar, content] = detail_parts(area);
+        for rect in [title, tabs, content] {
+            assert_eq!(mouse_action((rect.x, rect.y).into(), area), None);
+        }
+        let buttons = actions(toolbar);
+        for (button, expected) in
+            buttons
+                .iter()
+                .zip([Action::SelectA, Action::SelectB, Action::Swap])
+        {
+            assert_eq!(
+                mouse_action((button.x, button.y).into(), area),
+                Some(expected)
+            );
+            assert!(button.right() <= toolbar.right());
+            assert!(!button.intersects(content));
+        }
+    }
+}
+
+#[test]
+fn every_tab_uses_arrows_tab_shift_tab_and_numbers_consistently() {
+    use super::tabs::key_index;
+    use crossterm::event::KeyCode::*;
+    for (group, current, forward, back) in [
+        (true, 0, 1, 1),
+        (true, 1, 0, 0),
+        (false, 0, 1, 2),
+        (false, 1, 2, 0),
+        (false, 2, 0, 1),
+    ] {
+        for key in [Right, Tab] {
+            assert_eq!(key_index(group, current, key), Some(forward));
+        }
+        for key in [Left, BackTab] {
+            assert_eq!(key_index(group, current, key), Some(back));
+        }
+        assert_eq!(key_index(group, current, Char('1')), Some(0));
+        assert_eq!(key_index(group, current, Char('2')), Some(1));
+        assert_eq!(
+            key_index(group, current, Char('3')),
+            if group { None } else { Some(2) }
+        );
+        for key in [Up, Down, Enter, Esc, Char('n')] {
+            assert_eq!(key_index(group, current, key), None);
+        }
+    }
+}
+
+#[test]
+fn tab_mouse_targets_match_visible_cells_and_ignore_empty_space() {
+    use super::tabs::mouse_index;
+    let row = Rect::new(30, 6, 80, 1);
+    for group in [true, false] {
+        assert_eq!(mouse_index(row, group, (30, 6).into()), Some(0));
+        assert_eq!(mouse_index(row, group, (42, 6).into()), Some(1));
+        assert_eq!(
+            mouse_index(row, group, (54, 6).into()),
+            if group { None } else { Some(2) }
+        );
+        for point in [(41, 6), (80, 6), (30, 5), (30, 7)] {
+            assert_eq!(mouse_index(row, group, point.into()), None);
+        }
+    }
+}
+
+fn plain(lines: Vec<ratatui::text::Line<'_>>) -> String {
+    lines
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn comparison_keeps_saved_configuration_and_missing_metrics_without_file_inventories() {
+    let mut a = report("a", "smoke--baseline", 100);
+    let mut b = report("b", "smoke--context", 200);
+    a.model_requested = "model-one".into();
+    b.model_requested = "model-two".into();
+    a.agent_seconds = Some(20.0);
+    b.agent_seconds = Some(25.0);
+    b.usage = None;
+    b.cost_usd = None;
+    b.cost_note = "Price not recorded".into();
+    let comparison = Comparison::new(a, b).unwrap();
+    for width in [40, 100] {
+        let output = plain(super::compare::lines(Some(&comparison), width));
+        for expected in [
+            "model-one",
+            "model-two",
+            "20.0s",
+            "25.0s",
+            "+5.0s",
+            "24,308",
+            "Price not recorded",
+            "—",
+        ] {
+            assert!(output.contains(expected), "{output}");
+        }
+        for removed in [
+            "src/app.tsx",
+            "Generated source",
+            "Saved task inputs",
+            "assessment",
+            "Preview",
+        ] {
+            assert!(!output.contains(removed), "{output}");
+        }
+    }
+}
+
+#[test]
+fn setup_separates_saved_settings_from_the_changed_current_prompt() {
+    let mut run = report("a", "smoke--baseline", 100);
+    run.vp_version = Some("vp v0.3.1\nTools: verbose output".into());
+    let details = crate::task_result::TaskDetails {
+        prompt: "A changed prompt".into(),
+        config: Default::default(),
+        files: vec![],
+        changed_since_run: true,
+    };
+    let output = plain(super::details::screen_lines(
+        &super::details::Content {
+            task: None,
+            run: Some(&run),
+            tab: DetailTab::Setup,
+            details: Some(&details),
+            note: "",
+        },
+        100,
+    ));
+    for expected in [
+        "Saved run configuration",
+        "gpt-5.6-luna",
+        "60s",
+        "Task inputs changed",
+        "Current task prompt",
+        "A changed prompt",
+    ] {
+        assert!(output.contains(expected), "{output}");
+    }
+    assert!(output.contains("Vite+: vp v0.3.1"));
+    assert!(!output.contains("verbose output"));
+    assert!(!output.contains("created_at_ms"));
+    assert!(!output.contains("src/app.tsx"));
 }

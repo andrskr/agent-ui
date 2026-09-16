@@ -239,7 +239,6 @@ fn is_native_codex(path: &Path) -> bool {
         .any(|ancestor| ancestor.file_name().is_some_and(|name| name == "vendor"))
 }
 pub(crate) fn login(store: &Store, binary: &Path) -> Result<()> {
-    let _lock = store.lock()?;
     let home = store.root().join("private/login");
     private_dir(&home)?;
     let status = Command::new(binary)

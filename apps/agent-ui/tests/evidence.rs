@@ -1,4 +1,4 @@
-use agent_ui::{report::Report, settings::Settings, storage::valid_id};
+use agent_ui::{report::Report, settings::Settings, storage::valid_run_id};
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -186,9 +186,9 @@ fn source_changes_include_additions_edits_and_deletions_once() {
 }
 
 #[test]
-fn task_ids_reject_paths_and_accept_normal_folder_names() {
+fn run_ids_reject_paths_and_accept_normal_run_names() {
     for id in ["workspace-settings", "run_42", "Smoke"] {
-        assert!(valid_id(id).is_ok(), "{id}");
+        assert!(valid_run_id(id).is_ok(), "{id}");
     }
     for id in [
         "",
@@ -201,10 +201,10 @@ fn task_ids_reject_paths_and_accept_normal_folder_names() {
         "a\0b",
         "a b",
     ] {
-        assert!(valid_id(id).is_err(), "{id:?}");
+        assert!(valid_run_id(id).is_err(), "{id:?}");
     }
-    assert!(valid_id(&"a".repeat(120)).is_ok());
-    assert!(valid_id(&"a".repeat(121)).is_err());
+    assert!(valid_run_id(&"a".repeat(120)).is_ok());
+    assert!(valid_run_id(&"a".repeat(121)).is_err());
 }
 
 #[test]

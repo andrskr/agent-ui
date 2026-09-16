@@ -3,6 +3,47 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// A task folder name. The name is the only source of group membership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TaskId<'a> {
+    pub group: &'a str,
+    pub variant: &'a str,
+}
+
+impl<'a> TaskId<'a> {
+    pub fn parse(id: &'a str) -> Result<Self> {
+        let (group, variant) = id.split_once("--").with_context(|| {
+            format!("Invalid task ID '{id}': use <group>--<variant>, such as smoke--baseline")
+        })?;
+        ensure!(
+            id.len() <= 120 && valid_part(group) && valid_part(variant),
+            "Invalid task ID '{id}': use <group>--<variant> with lowercase letters, numbers, and single hyphens in each part; limit the full ID to 120 characters"
+        );
+        Ok(Self { group, variant })
+    }
+}
+
+fn valid_part(part: &str) -> bool {
+    part.split('-').all(|word| {
+        !word.is_empty()
+            && word
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    })
+}
+
+/// Check task identity before reading evidence or starting an assessment.
+pub fn comparison_group<'a>(reference: &'a str, other: &str) -> Result<&'a str> {
+    let a = TaskId::parse(reference)?;
+    let b = TaskId::parse(other)?;
+    ensure!(reference != other, "Select two different task variants");
+    ensure!(
+        a.group == b.group,
+        "Cannot compare '{reference}' with '{other}': select two variants from the same group"
+    );
+    Ok(a.group)
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct TaskConfig {

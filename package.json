@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "vp install",
+    "setup": "vp install && vp install --frozen-lockfile -- --dir experiments/starter",
     "dev": "vp run playground#dev",
     "format": "vp fmt --check",
     "lint": "vp lint",
@@ -14,6 +14,7 @@
     "prepare": "vp config --no-agent"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

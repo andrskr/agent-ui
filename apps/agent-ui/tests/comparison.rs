@@ -20,10 +20,33 @@ fn report(id: &str, task: &str) -> Report {
         },
     )
 }
+
+#[test]
+fn unrelated_saved_runs_cannot_form_a_comparison_or_an_assessment_pair() {
+    let a = report("one", "smoke--baseline");
+    let b = report("two", "dashboard--context");
+    assert!(Comparison::new(a, b).is_err());
+    assert!(TaskPair::new("smoke--baseline".into(), "dashboard--context".into()).is_err());
+    let pair = agent_ui::comparison::Pair {
+        reference: agent_ui::comparison::RunRef {
+            task: "smoke--baseline".into(),
+            run: "one".into(),
+        },
+        other: agent_ui::comparison::RunRef {
+            task: "dashboard--context".into(),
+            run: "two".into(),
+        },
+    };
+    assert!(pair.validate().is_err());
+    assert!(!pair.is_current(&BTreeMap::from([
+        ("smoke--baseline".into(), "one".into()),
+        ("dashboard--context".into(), "two".into()),
+    ])));
+}
 #[test]
 fn comparison_keeps_missing_values_distinct_from_zero_and_uses_signed_differences() {
-    let mut a = report("one", "bare");
-    let mut b = report("two", "guided");
+    let mut a = report("one", "smoke--baseline");
+    let mut b = report("two", "smoke--context");
     a.agent_seconds = Some(12.0);
     b.agent_seconds = Some(9.5);
     a.usage = Some(Usage {
@@ -59,8 +82,8 @@ fn comparison_keeps_missing_values_distinct_from_zero_and_uses_signed_difference
 }
 #[test]
 fn incomplete_snapshots_do_not_claim_no_changes() {
-    let mut a = report("one", "bare");
-    let mut b = report("two", "guided");
+    let mut a = report("one", "smoke--baseline");
+    let mut b = report("two", "smoke--context");
     a.state = State::Ready;
     b.state = State::Failed;
     a.inputs.insert("task.md".into(), "prompt".into());
@@ -99,27 +122,36 @@ fn file_comparison_distinguishes_added_removed_changed_and_equal_files() {
 }
 #[test]
 fn assessments_bind_two_different_tasks_and_the_exact_run_pair() {
-    assert!(Comparison::new(report("one", "bare"), report("two", "bare")).is_err());
-    assert!(TaskPair::new("bare".into(), "bare".into()).is_err());
-    let pair = Comparison::new(report("one", "bare"), report("two", "guided"))
-        .unwrap()
-        .pair;
+    assert!(
+        Comparison::new(
+            report("one", "smoke--baseline"),
+            report("two", "smoke--baseline")
+        )
+        .is_err()
+    );
+    assert!(TaskPair::new("smoke--baseline".into(), "smoke--baseline".into()).is_err());
+    let pair = Comparison::new(
+        report("one", "smoke--baseline"),
+        report("two", "smoke--context"),
+    )
+    .unwrap()
+    .pair;
     let mut current = BTreeMap::from([
-        ("bare".into(), "one".into()),
-        ("guided".into(), "two".into()),
+        ("smoke--baseline".into(), "one".into()),
+        ("smoke--context".into(), "two".into()),
     ]);
     current.insert("unrelated".into(), "new".into());
     assert!(pair.is_current(&current));
-    current.insert("bare".into(), "replacement".into());
+    current.insert("smoke--baseline".into(), "replacement".into());
     assert!(!pair.is_current(&current));
-    current.remove("bare");
+    current.remove("smoke--baseline");
     assert!(!pair.is_current(&current));
 }
 #[test]
 fn active_task_blocks_assessment_but_keeps_partial_measurements_available() {
-    let mut a = report("one", "bare");
+    let mut a = report("one", "smoke--baseline");
     a.state = State::Ready;
-    let b = report("two", "guided");
+    let b = report("two", "smoke--context");
     let comparison = Comparison::new(a, b).unwrap();
     assert!(!comparison.can_assess());
     assert!(comparison.measurements.setup_seconds.difference.is_none());
@@ -127,8 +159,8 @@ fn active_task_blocks_assessment_but_keeps_partial_measurements_available() {
 
 #[test]
 fn cost_comparison_uses_model_prices_and_preserves_missing_values_when_swapped() {
-    let mut a = report("one", "bare");
-    let mut b = report("two", "guided");
+    let mut a = report("one", "smoke--baseline");
+    let mut b = report("two", "smoke--context");
     a.model_requested = "gpt-5.6-sol".into();
     b.model_requested = "gpt-5.6-luna".into();
     a.usage = Some(Usage {

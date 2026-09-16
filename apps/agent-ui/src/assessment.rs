@@ -78,10 +78,10 @@ pub(crate) fn start(
     comparison: Comparison,
     settings: Settings,
 ) -> Result<Worker<Assessment>> {
+    comparison.pair.validate()?;
     settings.validate()?;
     ensure!(comparison.can_assess(), "Wait for both task runs to finish");
     let tools = Tools::discover(&settings)?;
-    let lock = store.lock()?;
     let provider = providers::get(&settings.provider)?;
     provider.preflight(&store, &tools.agent)?;
     for run in [&comparison.pair.reference, &comparison.pair.other] {
@@ -119,7 +119,6 @@ pub(crate) fn start(
     let cancel = Cancel::default();
     let worker_cancel = cancel.clone();
     let worker = thread::spawn(move || {
-        let _lock = lock;
         let mut measurement = measurement;
         let result = (|| -> Result<()> {
             measurement.provider_version = Some(tools.versions()?.agent);
@@ -193,11 +192,11 @@ mod tests {
         Assessment {
             pair: Pair {
                 reference: RunRef {
-                    task: "bare".into(),
+                    task: "smoke--baseline".into(),
                     run: "one".into(),
                 },
                 other: RunRef {
-                    task: "guided".into(),
+                    task: "smoke--context".into(),
                     run: "two".into(),
                 },
             },

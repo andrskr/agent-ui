@@ -2,13 +2,14 @@
 
 The app runs task experiments and lets a person compare their code and evidence. CLI and TUI use the
 same application service. Each task has at most one current run. Comparison joins two different
-tasks. There is no run history, approval state, or promotion step.
+variants from the same task group. There is no run history, approval state, or promotion step.
 
 ## Owners
 
 | Owner               | Responsibility                                                       |
 | ------------------- | -------------------------------------------------------------------- |
 | `Project`           | Find tasks and validate source inputs before replacement.            |
+| `TaskId`            | Parse task names and enforce comparison groups in memory.            |
 | `TaskConfig`        | Parse TOML and transform package settings in memory.                 |
 | `Application`       | Coordinate runs, assessments, and previews for both interfaces.      |
 | `Store`             | Own the task index, run files, locks, replacement, and recovery.     |
@@ -20,6 +21,7 @@ tasks. There is no run history, approval state, or promotion step.
 | `Comparison`        | Compute signed differences from two saved results.                   |
 | `Cost`              | Define cost evidence and format USD values.                          |
 | `Assessment`        | Run an explicit agent comparison and record its separate evidence.   |
+| `RunQueue`          | Keep pending group tasks and settings in memory.                     |
 | `Worker<T>`         | Own cancellation and join a background thread.                       |
 | `Preview`           | Own one server, port, lock, and readiness state.                     |
 | `Process`           | Own child groups and capture output.                                 |
@@ -44,9 +46,11 @@ effort. The CLI and both TUI forms use these same rules.
 
 Each provider owns binary resolution, login checks, credentials, command arguments, event decoding,
 artifact capture, and cost calculation. `LocalSession` supplies a temporary HOME, explicit common
-environment, and local tool wrappers. Provider code adds its own environment. The shared executor
-saves raw events and command evidence, runs the process, and attempts artifact capture on failure.
-`Report` and `Assessment` accept only typed observations. Neither reads provider JSON.
+environment, and local tool wrappers. Provider code adds its own environment. Claude keeps the host
+HOME and user identity so its macOS Keychain login matches the sign-in check. Its configuration
+folder remains private to the selected data directory. The shared executor saves raw events and
+command evidence, runs the process, and attempts artifact capture on failure. `Report` and
+`Assessment` accept only typed observations. Neither reads provider JSON.
 
 To add a provider:
 
@@ -100,6 +104,17 @@ session data after trace capture.
 
 ## Comparison and assessment
 
+`TaskId` parses `<group>--<variant>` folder names. Both parts use lowercase letters, numbers, and
+single hyphens between words. The full ID is limited to 120 characters. Task discovery and CLI task
+arguments reject other names. Run IDs have a separate validator. `tasks --check` validates the task
+catalog and input files without opening `Store`. Root verification includes this command.
+
+The shared comparison rule requires two different variants in the exact same group. `Application`
+checks it before loading reports. `Comparison` checks the saved report task IDs. Assessment start,
+saved assessment access, and assessment recovery enforce it too. Group membership comes from the
+saved task ID, so editing task inputs cannot change the group of existing evidence. There is no
+separate group configuration, old-name alias, or run migration.
+
 `TaskPair` stores two task IDs for UI selection. `Comparison::Pair` binds two exact task/run IDs.
 Measurements use B minus A. Missing values remain missing. Input changes come from saved input
 hashes. Setup and final source changes come from saved inventories. The comparison includes both
@@ -133,9 +148,30 @@ stopping A does not stop B. Polling checks readiness; the interface opens the br
 readiness. Quitting stops all owned previews. A preview command in another process holds the same
 run lock and blocks replacement until it stops.
 
-The sidebar selection is a task ID. The comparison pair and whether comparison is open are saved.
-The selected side chooses Activity, Evidence, code, and preview actions. Overview displays both
-results. The picker includes tasks without output, but they cannot form a comparison yet.
+The sidebar is a group and task tree. `Tasks` owns group-level and task-level navigation. Group
+membership comes from `TaskId`. Enter moves into a group. Esc returns to the group. The tree stays
+visible. The saved selection keeps a task ID as the group anchor, the navigation level, the
+comparison pair, and whether comparison is open. Older selections start at group level.
+
+Group Overview shows every member, regardless of the sidebar search. Group comparison reuses a valid
+saved pair or selects the first two available members. It shows an empty state when there are fewer
+than two results. Task comparison uses the selected task as A and opens the group Compare view. A
+and B selectors retain their group filter during refresh. Tasks without output remain visible but
+cannot form a pair.
+
+`tabs.rs` owns one tab contract for rendering, keyboard input, and mouse targets. Left/Right,
+Tab/Shift+Tab, number keys, and mouse clicks all select the same visible tabs. Enter/Esc change the
+navigation level. `layout.rs` owns one title, tab row, action row, and content region for all views.
+
+`compare.rs` owns comparison content and actions. It displays configurations, outcomes, and metrics
+for both results. Its actions select A, select B, and swap. Task shortcuts and agent actions are not
+active in comparison mode. Agent assessment remains a CLI feature. `details.rs` owns task Overview,
+Activity, and Setup. Setup separates saved configuration from the current task prompt. Each view
+uses shared text formatting from `text.rs`.
+
+On startup, saved selection is checked against the current catalog and available runs. An invalid
+pair is cleared and the UI returns to Overview with a message. This includes removed tasks, missing
+runs, and pairs from different groups.
 
 ## Verification and limits
 
@@ -149,6 +185,11 @@ Compilation and package tooling still write normal build output and caches.
 
 The app runs up to four task runs at once per storage location, one run per task, and holds the
 storage lock for its lifetime, so only one app instance uses a storage location at a time. An
-assessment does not run while any task run is active. It has no job queue, event database, plugin
-loader, or migration layer. Configuration separation does not provide full host isolation. Evidence
-can contain task text and paths. An agent code assessment cannot approve visual quality.
+assessment does not run while any task run is active or queued. `Application::start_group` validates
+all idle members before adding them to `RunQueue`. Existing active or queued members are skipped.
+Polling starts pending tasks as slots become free. Dispatch errors remain visible in Group Overview;
+worker failures keep their normal reports. Group cancellation removes pending entries and cancels
+active members. Quitting drops the queue. It does not resume after restart. There is no event
+database, plugin loader, or migration layer. Configuration separation does not provide full host
+isolation. Evidence can contain task text and paths. An agent code assessment cannot approve visual
+quality.

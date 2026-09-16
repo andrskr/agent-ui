@@ -75,9 +75,7 @@ pub struct TaskPair {
 }
 impl TaskPair {
     pub fn new(reference: String, other: String) -> anyhow::Result<Self> {
-        crate::storage::valid_id(&reference)?;
-        crate::storage::valid_id(&other)?;
-        anyhow::ensure!(reference != other, "Select two different tasks");
+        crate::task::comparison_group(&reference, &other)?;
         Ok(Self { reference, other })
     }
     pub fn swap(&mut self) {
@@ -89,6 +87,33 @@ pub struct Selection {
     pub task: Option<String>,
     pub pair: Option<TaskPair>,
     pub comparing: bool,
+    #[serde(default)]
+    pub task_level: bool,
+}
+
+impl Selection {
+    /// Remove unavailable selections before restoring the task view.
+    pub fn reconcile(&mut self, tasks: &[TaskView]) -> Option<String> {
+        if !tasks.iter().any(|t| Some(&t.id) == self.task.as_ref()) {
+            self.task = tasks.first().map(|t| t.id.clone());
+        }
+        let valid_pair = self.pair.as_ref().is_some_and(|pair| {
+            crate::task::comparison_group(&pair.reference, &pair.other).is_ok()
+                && [&pair.reference, &pair.other].iter().all(|id| {
+                    tasks.iter().any(|task| {
+                        &task.id == *id
+                            && !task.cleanup_pending
+                            && task.run.as_ref().is_some_and(|run| &run.task == *id)
+                    })
+                })
+        });
+        if !valid_pair && (self.pair.is_some() || self.comparing) {
+            self.pair = None;
+            self.comparing = false;
+            return Some("Saved comparison is unavailable. Select two task variants from the same group with saved runs.".into());
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -97,34 +122,41 @@ mod tests {
     #[test]
     fn incomplete_removal_blocks_replacement_and_survives_reload() {
         let mut index = Index::default();
-        index.register("bare", "old".into()).unwrap();
-        index.register("guided", "keep".into()).unwrap();
-        assert_eq!(index.begin_removal("bare").as_deref(), Some("old"));
+        index.register("smoke--baseline", "old".into()).unwrap();
+        index.register("smoke--context", "keep".into()).unwrap();
+        assert_eq!(
+            index.begin_removal("smoke--baseline").as_deref(),
+            Some("old")
+        );
         let bytes = serde_json::to_vec(&index).unwrap();
         let mut recovered: Index = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(recovered.current("bare"), None);
+        assert_eq!(recovered.current("smoke--baseline"), None);
         assert!(recovered.keeps("old"));
-        assert!(recovered.register("bare", "new".into()).is_err());
-        assert_eq!(recovered.begin_removal("bare").as_deref(), Some("old"));
-        recovered.finish_removal("bare");
-        recovered.register("bare", "new".into()).unwrap();
-        assert_eq!(recovered.current("bare"), Some("new"));
-        assert_eq!(recovered.current("guided"), Some("keep"));
+        assert!(recovered.register("smoke--baseline", "new".into()).is_err());
+        assert_eq!(
+            recovered.begin_removal("smoke--baseline").as_deref(),
+            Some("old")
+        );
+        recovered.finish_removal("smoke--baseline");
+        recovered.register("smoke--baseline", "new".into()).unwrap();
+        assert_eq!(recovered.current("smoke--baseline"), Some("new"));
+        assert_eq!(recovered.current("smoke--context"), Some("keep"));
         assert!(!recovered.keeps("old"));
     }
     #[test]
     fn saved_selection_keeps_swapped_pair_without_creating_approval_state() {
-        let mut pair = TaskPair::new("bare".into(), "guided".into()).unwrap();
+        let mut pair = TaskPair::new("smoke--baseline".into(), "smoke--context".into()).unwrap();
         pair.swap();
         let saved = serde_json::to_value(Selection {
-            task: Some("guided".into()),
+            task: Some("smoke--context".into()),
             pair: Some(pair),
             comparing: true,
+            task_level: true,
         })
         .unwrap();
         assert_eq!(
             saved,
-            serde_json::json!({"task":"guided","pair":{"reference":"guided","other":"bare"},"comparing":true})
+            serde_json::json!({"task":"smoke--context","pair":{"reference":"smoke--context","other":"smoke--baseline"},"comparing":true,"task_level":true})
         );
     }
 }

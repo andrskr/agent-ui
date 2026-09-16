@@ -1,5 +1,5 @@
 use crate::{
-    storage::{Store, private_dir, valid_id},
+    storage::{Store, private_dir, valid_run_id},
     toolchain::Tools,
 };
 use anyhow::Result;
@@ -20,7 +20,7 @@ pub(super) struct LocalSession {
 }
 impl LocalSession {
     pub fn new(store: &Store, id: &str, app: &Path, tools: &Tools) -> Result<Self> {
-        valid_id(id)?;
+        valid_run_id(id)?;
         let root = store.root().join("private").join(id);
         let home = root.join("home");
         private_dir(&home)?;

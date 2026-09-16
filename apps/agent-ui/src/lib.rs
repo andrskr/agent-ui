@@ -11,6 +11,7 @@ pub mod process;
 mod project;
 pub mod providers;
 pub mod report;
+mod run_queue;
 mod runner;
 pub mod settings;
 pub mod storage;

@@ -29,6 +29,8 @@ pub struct Application {
     store: Store,
     active: BTreeMap<String, Active>,
     previews: BTreeMap<String, Preview>,
+    queue: crate::run_queue::RunQueue,
+    queue_errors: BTreeMap<String, String>,
     assessment: Option<crate::worker::Worker<crate::assessment::Assessment>>,
     _lock: File,
 }
@@ -56,6 +58,8 @@ impl Application {
             store,
             active: BTreeMap::new(),
             previews: BTreeMap::new(),
+            queue: Default::default(),
+            queue_errors: BTreeMap::new(),
             assessment: None,
             _lock: lock,
         })
@@ -107,10 +111,10 @@ impl Application {
         self.store.save_selection(selection)
     }
     pub fn is_busy(&self) -> bool {
-        !self.active.is_empty() || self.assessment.is_some()
+        !self.active.is_empty() || !self.queue.is_empty() || self.assessment.is_some()
     }
     pub fn is_running(&self, task: &str) -> bool {
-        self.active.contains_key(task)
+        self.active.contains_key(task) || self.queue.contains(task)
     }
     pub fn active_runs(&self) -> usize {
         self.active.len()
@@ -119,6 +123,7 @@ impl Application {
         self.active.keys().cloned().collect()
     }
     pub fn compare(&self, reference: &str, other: &str) -> Result<Comparison> {
+        crate::task::comparison_group(reference, other)?;
         Comparison::new(self.report(reference)?, self.report(other)?)
     }
     pub fn start_assessment(
@@ -150,6 +155,7 @@ impl Application {
         }
     }
     pub fn assessment_text(&self, comparison: &Comparison) -> Result<String> {
+        comparison.pair.validate()?;
         let Some(report) = self.store.assessment()? else {
             return Ok(String::new());
         };
@@ -190,21 +196,82 @@ impl Application {
         Ok(self.store.files(id)?.root().to_owned())
     }
 
+    pub fn queued_task_ids(&self) -> Vec<String> {
+        self.queue.ids()
+    }
+    pub fn queue_errors(&self) -> &BTreeMap<String, String> {
+        &self.queue_errors
+    }
+    pub fn start_group(&mut self, group: &str, settings: Settings) -> Result<usize> {
+        settings.validate()?;
+        ensure!(
+            self.assessment.is_none(),
+            "Wait for the assessment to finish"
+        );
+        let members: Vec<_> = self
+            .tasks()?
+            .into_iter()
+            .filter(|id| crate::task::TaskId::parse(id).is_ok_and(|id| id.group == group))
+            .collect();
+        ensure!(!members.is_empty(), "This group has no tasks");
+        let tasks: Vec<_> = members
+            .into_iter()
+            .filter(|id| !self.is_running(id))
+            .collect();
+        ensure!(
+            !tasks.is_empty(),
+            "All tasks in this group are already running or queued"
+        );
+        for task in &tasks {
+            self.project.task(task)?;
+        }
+        for task in &tasks {
+            self.queue_errors.remove(task);
+        }
+        let count = tasks.len();
+        self.queue.add(tasks, settings);
+        self.dispatch_queue();
+        Ok(count)
+    }
+    fn dispatch_queue(&mut self) {
+        while let Some((task, settings)) = self.queue.next(self.active.len(), MAX_CONCURRENT_RUNS) {
+            if let Err(error) = self.start(&task, settings) {
+                self.queue_errors.insert(task, format!("{error:#}"));
+            }
+        }
+    }
+    pub fn cancel_assessment(&self) -> bool {
+        if let Some(assessment) = &self.assessment {
+            assessment.cancel();
+            true
+        } else {
+            false
+        }
+    }
+    pub fn cancel_group(&mut self, group: &str) {
+        let tasks: Vec<_> = self
+            .active_task_ids()
+            .into_iter()
+            .chain(self.queue.ids())
+            .filter(|id| crate::task::TaskId::parse(id).is_ok_and(|id| id.group == group))
+            .collect();
+        for task in tasks {
+            self.cancel_task(&task);
+        }
+    }
     pub fn start(&mut self, task: &str, settings: Settings) -> Result<String> {
         settings.validate()?;
         ensure!(
             self.assessment.is_none(),
             "Wait for the assessment to finish"
         );
-        ensure!(
-            !self.active.contains_key(task),
-            "This task is already running"
-        );
+        ensure!(!self.is_running(task), "This task is already running");
         ensure!(
             self.active.len() < MAX_CONCURRENT_RUNS,
             "{MAX_CONCURRENT_RUNS} runs are already active. Wait for one to finish"
         );
         let source = self.project.task(task)?;
+        self.queue_errors.remove(task);
         self.stop_preview(task);
         let active = runner::start(self.store.clone(), source, settings)?;
         let id = active.id.clone();
@@ -221,7 +288,8 @@ impl Application {
                     .flatten()
             })
     }
-    pub fn cancel(&self) {
+    pub fn cancel(&mut self) {
+        self.queue.clear();
         if let Some(assessment) = &self.assessment {
             assessment.cancel();
         }
@@ -229,7 +297,10 @@ impl Application {
             active.cancel();
         }
     }
-    pub fn cancel_task(&self, task: &str) -> bool {
+    pub fn cancel_task(&mut self, task: &str) -> bool {
+        if self.queue.cancel(task) {
+            return true;
+        }
         match self.active.get(task) {
             Some(active) => {
                 active.cancel();
@@ -251,10 +322,12 @@ impl Application {
             .filter(|(_, active)| active.finished())
             .map(|(task, _)| task.clone())
             .collect();
-        finished
+        let result = finished
             .into_iter()
             .map(|task| Ok((task.clone(), self.join(&task)?)))
-            .collect()
+            .collect();
+        self.dispatch_queue();
+        result
     }
 
     pub fn preview(&self, task: &str) -> Option<PreviewInfo<'_>> {

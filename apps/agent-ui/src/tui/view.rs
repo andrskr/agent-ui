@@ -1,7 +1,7 @@
 use super::{
     details::screen_lines,
     layout::*,
-    state::{App, DetailTab, FormField, Modal, Side},
+    state::{App, DetailTab, FormField, Modal},
     tasks::{TaskRow, Tasks, local_stamp},
     theme::*,
 };
@@ -19,7 +19,7 @@ fn block(title: &str) -> Block<'_> {
         .title(Line::from(format!(" {title} ")).fg(MUTED))
         .padding(Padding::horizontal(2))
 }
-fn fit(text: &str, width: u16) -> String {
+pub(super) fn fit(text: &str, width: u16) -> String {
     if Line::from(text).width() <= usize::from(width) {
         return text.to_owned();
     }
@@ -30,7 +30,7 @@ fn fit(text: &str, width: u16) -> String {
     value.push('…');
     value
 }
-fn button(frame: &mut Frame, area: Rect, label: &str, primary: bool) {
+pub(super) fn button(frame: &mut Frame, area: Rect, label: &str, primary: bool) {
     frame.render_widget(
         Paragraph::new(label)
             .alignment(Alignment::Center)
@@ -54,13 +54,12 @@ pub(super) struct Screen<'a> {
     pub notice: &'a str,
     pub note: &'a str,
     pub preview: Option<PreviewInfo<'a>>,
-    pub active: bool,
     pub selection: &'a Selection,
-    pub side: Side,
     pub comparison: Option<&'a Comparison>,
-    pub assessment: &'a str,
     pub details: Option<&'a TaskDetails>,
     pub starting: Vec<String>,
+    pub queued: Vec<String>,
+    pub queue_errors: &'a std::collections::BTreeMap<String, String>,
 }
 pub(super) fn draw(frame: &mut Frame, app: &App) {
     draw_screen(
@@ -79,13 +78,12 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
                     id: p.id,
                     ready: p.ready,
                 }),
-            active: app.runtime.is_busy(),
             selection: &app.selection,
-            side: app.side,
             comparison: app.comparison.as_ref(),
-            assessment: &app.assessment,
             details: app.details.as_ref(),
             starting: app.runtime.active_task_ids(),
+            queued: app.runtime.queued_task_ids(),
+            queue_errors: app.runtime.queue_errors(),
         },
     );
     if frame.area().width >= 76 && frame.area().height >= 24 && app.modal != Modal::None {
@@ -93,11 +91,8 @@ pub(super) fn draw(frame: &mut Frame, app: &App) {
     }
 }
 fn focus_id<'a>(screen: &'a Screen<'a>) -> Option<&'a str> {
-    if screen.selection.comparing {
-        screen.selection.pair.as_ref().map(|p| match screen.side {
-            Side::Reference => p.reference.as_str(),
-            Side::Other => p.other.as_str(),
-        })
+    if screen.selection.comparing || screen.tasks.is_group() {
+        None
     } else {
         screen.tasks.current().map(|t| t.id.as_str())
     }
@@ -180,8 +175,6 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
         ),
         outer[0],
     );
-    button(frame, new_button(area), "n Run task", false);
-    button(frame, compare_button(area), "c Compare", false);
     frame.render_widget(
         Block::default()
             .borders(Borders::RIGHT)
@@ -190,7 +183,7 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
     );
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" Tasks", Style::default().bold()),
+            Span::styled(" Groups", Style::default().bold()),
             Span::styled("", Style::default().fg(MUTED)),
         ])),
         Rect::new(panels[0].x, panels[0].y, panels[0].width, 1),
@@ -234,9 +227,28 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
         let rect = Rect::new(list.x, list.y + offset as u16, list.width, 1);
         match row {
             TaskRow::Gap => {}
+            TaskRow::Group { index } => {
+                let name = super::tasks::group(&screen.tasks.items[*index].id);
+                let selected = screen.tasks.is_group() && screen.tasks.group() == Some(name);
+                frame.render_widget(
+                    Paragraph::new(fit(
+                        &format!(
+                            "{} {}",
+                            if selected { "▎" } else { "▾" },
+                            super::tasks::label(name)
+                        ),
+                        rect.width,
+                    ))
+                    .bold()
+                    .fg(if selected { ACCENT } else { TEXT })
+                    .bg(if selected { SELECTED } else { BG }),
+                    rect,
+                );
+            }
             TaskRow::Task { index, line } => {
                 let run = &screen.tasks.items[*index];
-                let selected = screen.tasks.current().is_some_and(|r| r.id == run.id);
+                let selected = !screen.tasks.is_group()
+                    && screen.tasks.current().is_some_and(|r| r.id == run.id);
                 let style = Style::default().bg(if selected { SELECTED } else { BG });
                 frame.render_widget(Block::default().style(style), rect);
                 if selected {
@@ -245,7 +257,13 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
                         Rect::new(rect.x, rect.y, 1, 1),
                     );
                 }
-                let text = Rect::new(rect.x + 2, rect.y, rect.width.saturating_sub(3), 1);
+                let indent = if screen.tasks.is_grouped() { 4 } else { 2 };
+                let text = Rect::new(
+                    rect.x + indent,
+                    rect.y,
+                    rect.width.saturating_sub(indent + 1),
+                    1,
+                );
                 match line {
                     0 => frame.render_widget(
                         Paragraph::new(fit(
@@ -270,7 +288,11 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
                                 } else {
                                     ""
                                 },
-                                run.id
+                                if screen.tasks.is_grouped() {
+                                    super::tasks::label(super::tasks::variant(&run.id))
+                                } else {
+                                    run.id.clone()
+                                }
                             ),
                             text.width,
                         ))
@@ -278,7 +300,11 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
                         text,
                     ),
                     1 => {
-                        let (status, color) = if is_starting(screen, &run.id, run.run.as_ref()) {
+                        let (status, color) = if screen.queued.contains(&run.id) {
+                            ("Queued".into(), GOLD)
+                        } else if screen.queue_errors.contains_key(&run.id) {
+                            ("Start failed".into(), GOLD)
+                        } else if is_starting(screen, &run.id, run.run.as_ref()) {
                             (format!("{} Starting…", spinner_frame()), GOLD)
                         } else {
                             match run.run.as_ref() {
@@ -309,7 +335,31 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
         }
     }
     if screen.tasks.current().is_some() {
-        details(frame, panels[1], screen);
+        if screen.tasks.is_group() {
+            let parts = detail_parts(panels[1]);
+            frame.render_widget(
+                Paragraph::new(super::tasks::label(
+                    screen.tasks.group().unwrap_or_default(),
+                ))
+                .bold(),
+                parts[0],
+            );
+            super::tabs::draw(
+                frame,
+                parts[1],
+                true,
+                usize::from(screen.selection.comparing),
+            );
+            if screen.selection.comparing {
+                super::compare::draw(frame, panels[1], screen);
+            } else {
+                super::groups::overview(frame, panels[1], screen);
+            }
+        } else if screen.selection.comparing {
+            super::compare::draw(frame, panels[1], screen);
+        } else {
+            details(frame, panels[1], screen);
+        }
     } else {
         frame.render_widget(
             Paragraph::new(if query.is_empty() {
@@ -326,17 +376,11 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
         None => frame.render_widget(Paragraph::new(screen.notice).fg(MUTED), outer[2]),
     }
     let footer = if screen.searching {
-        " Type to search   Enter Apply   Esc Clear".into()
-    } else if screen.selection.comparing {
-        format!(
-            " v Side  s Swap  c Change pair  m Ask agent  Esc Back{}",
-            if screen.active { "  ⇧C Cancel" } else { "" }
-        )
+        " Type to search  Enter Apply  Esc Clear"
+    } else if screen.tasks.is_group() || screen.selection.comparing {
+        " ↑↓ Group  Enter Tasks  ←→/Tab Views  ? Help"
     } else {
-        format!(
-            " ↑↓ Task  Tab View  / Search  ? Help{}",
-            if screen.active { "  ⇧C Cancel" } else { "" }
-        )
+        " ↑↓ Task  Esc Group  ←→/Tab Views  ? Help"
     };
     frame.render_widget(
         Paragraph::new(footer).fg(MUTED).block(
@@ -360,59 +404,47 @@ fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>) {
     let parts = detail_parts(area);
     let run = focused_run(screen);
     let starting = focus_id(screen).is_some_and(|id| is_starting(screen, id, run));
-    if screen.selection.comparing
-        && let Some(pair) = &screen.selection.pair
-    {
-        let cols: [Rect; 2] = Layout::horizontal([Constraint::Ratio(1, 2); 2]).areas(parts[0]);
-        for (i, text) in [
-            format!("A  {}", pair.reference),
-            format!("B  {}", pair.other),
-        ]
-        .iter()
-        .enumerate()
-        {
-            let chosen = (i == 0) == (screen.side == Side::Reference);
-            frame.render_widget(
-                Paragraph::new(fit(text, cols[i].width)).style(if chosen {
-                    Style::default().fg(ACCENT).bold().underlined()
-                } else {
-                    Style::default().fg(MUTED)
-                }),
-                cols[i],
-            );
-        }
-    } else if let Some(task) = screen.tasks.current() {
-        frame.render_widget(Paragraph::new(task.id.as_str()).bold(), parts[0]);
-    }
-    for (i, label) in ["Overview", "Activity", "Evidence"].iter().enumerate() {
+    if let Some(task) = screen.tasks.current() {
         frame.render_widget(
-            Paragraph::new(*label).style(if screen.tab == DetailTab::ALL[i] {
-                Style::default().fg(ACCENT).underlined()
-            } else {
-                Style::default().fg(MUTED)
-            }),
-            Rect::new(parts[1].x + i as u16 * 12, parts[1].y, 11, 1),
+            Paragraph::new(format!(
+                "{} / {}",
+                super::tasks::label(super::tasks::group(&task.id)),
+                super::tasks::label(super::tasks::variant(&task.id))
+            ))
+            .bold(),
+            parts[0],
         );
     }
+    super::tabs::draw(frame, parts[1], false, screen.tab as usize);
+    let actions = action_areas(parts[2]);
+    button(
+        frame,
+        actions[0],
+        if starting || run.is_some_and(|r| r.state.active()) {
+            "C Cancel"
+        } else {
+            "n Run"
+        },
+        true,
+    );
     if !starting && let Some(run) = run.filter(|r| !r.state.active()) {
         let preview = screen.preview.as_ref().filter(|p| p.id == run.id);
-        let actions = action_areas(parts[2]);
         button(
             frame,
-            actions[0],
+            actions[1],
             match preview {
                 Some(p) if p.ready => "b Open preview",
                 Some(_) => "Starting…",
                 None => "b Preview",
             },
-            true,
+            false,
         );
-        button(frame, actions[1], "e Open code", false);
+        button(frame, actions[2], "e Code", false);
         if preview.is_some() {
-            button(frame, actions[2], "x Stop", false);
+            button(frame, actions[3], "x Stop", false);
         }
     }
-    let lines = if starting {
+    let lines = if starting && screen.tab != DetailTab::Setup {
         vec![
             Line::default(),
             Line::from(format!("{} Starting the run…", spinner_frame())).fg(GOLD),
@@ -422,12 +454,9 @@ fn details(frame: &mut Frame, area: Rect, screen: &Screen<'_>) {
             &super::details::Content {
                 task: screen.tasks.current(),
                 run,
-                comparison: screen.comparison,
-                comparing: screen.selection.comparing,
                 tab: screen.tab,
                 details: screen.details,
                 note: screen.note,
-                assessment: screen.assessment,
             },
             parts[3].width,
         )
@@ -462,7 +491,10 @@ fn modal(frame: &mut Frame, app: &App) {
     frame.render_widget(
         block(match app.modal {
             Modal::Run => "RUN TASK",
-            Modal::Assess => "ASSESS PAIR",
+            Modal::RunGroup => "RUN ALL TASKS",
+            Modal::Reference => "SELECT REFERENCE TASK",
+            Modal::PairA => "SELECT A",
+            Modal::PairB => "SELECT B",
             Modal::Picker => "COMPARE WITH",
             _ => "KEYBOARD",
         })
@@ -470,18 +502,22 @@ fn modal(frame: &mut Frame, app: &App) {
         area,
     );
     match app.modal {
-        Modal::Run | Modal::Assess => {
+        Modal::Run | Modal::RunGroup => {
             frame.render_widget(
-                Paragraph::new(app.focused_task().unwrap_or("No task"))
-                    .fg(ACCENT)
-                    .bold(),
+                Paragraph::new(if app.modal == Modal::RunGroup {
+                    app.tasks.group().unwrap_or("No group").to_owned()
+                } else {
+                    app.focused_task().unwrap_or("No task").to_owned()
+                })
+                .fg(ACCENT)
+                .bold(),
                 Rect::new(area.x + 4, area.y + 2, area.width - 8, 1),
             );
             settings_fields(frame, area, &app.settings, app.field);
-            let message = if app.modal == Modal::Assess {
-                "Read saved code and evidence. This uses separate agent tokens.\nStarting replaces the previous assessment."
+            let message = if app.modal == Modal::RunGroup {
+                "Run all tasks with these settings. Active tasks are skipped.\nEach new run replaces its previous output. Esc cancels this form."
             } else if app.current().is_some() {
-                "Starting removes this task's previous code, logs, and reports.\nIts saved agent assessment will also be removed."
+                "This run replaces the task's saved output.\nEsc cancels this form."
             } else {
                 "Start from the React and Astryx starter.\nThe run copies the current task inputs."
             };
@@ -500,19 +536,19 @@ fn modal(frame: &mut Frame, app: &App) {
             button(
                 frame,
                 modal_submit(area),
-                if app.modal == Modal::Assess {
-                    "Start assessment  ↵"
+                if app.modal == Modal::RunGroup {
+                    "Run all tasks  ↵"
                 } else {
                     "Start run  ↵"
                 },
                 true,
             );
         }
-        Modal::Picker => {
+        Modal::Picker | Modal::Reference | Modal::PairA | Modal::PairB => {
             frame.render_widget(
                 Paragraph::new(format!(
-                    "Reference: {}",
-                    app.tasks.current().map(|t| t.id.as_str()).unwrap_or("—")
+                    "Group: {}",
+                    super::tasks::label(app.tasks.group().unwrap_or("—"))
                 ))
                 .fg(ACCENT),
                 Rect::new(area.x + 4, area.y + 2, area.width - 8, 1),
@@ -522,21 +558,32 @@ fn modal(frame: &mut Frame, app: &App) {
                 Rect::new(area.x + 4, area.y + 3, area.width - 8, 1),
             );
             let rect = picker_list(area);
+            if app.picker.visible().is_empty() {
+                frame.render_widget(
+                    Paragraph::new(if app.picker.items.is_empty() {
+                        "No other variant in this group. Add a task with the same group name."
+                    } else {
+                        "No variants match this search."
+                    })
+                    .fg(MUTED)
+                    .wrap(Wrap { trim: false }),
+                    rect,
+                );
+            }
             for (offset, row) in app.picker.window(rect.height).iter().enumerate() {
                 if let TaskRow::Task { index, line } = row {
                     let task = &app.picker.items[*index];
-                    let enabled =
-                        task.run.is_some() && app.tasks.current().is_some_and(|t| t.id != task.id);
+                    let enabled = task.run.is_some() && !task.cleanup_pending;
                     let chosen = app.picker.current().is_some_and(|t| t.id == task.id);
                     let value = match line {
                         0 => task.id.clone(),
                         1 => {
                             if enabled {
                                 task.status().into()
-                            } else if task.run.is_none() {
-                                "Run this task first".into()
+                            } else if task.cleanup_pending {
+                                "Cleanup blocked".into()
                             } else {
-                                "Reference task".into()
+                                "Run this task first".into()
                             }
                         }
                         _ => String::new(),
@@ -555,7 +602,15 @@ fn modal(frame: &mut Frame, app: &App) {
             );
         }
         _ => {
-            let text = "↑↓ / j k     Select task\nTab / 1 2 3  Overview / Activity / Evidence\nc            Choose another task for comparison\nv / s        Select side / Swap comparison sides\nEsc          Leave comparison\nn            Run task; removes its previous output\nm            Ask agent to assess the current pair\nb / x        Open / Stop this task's preview\ne / r / a / f Code / JSON / Agent note / Evidence\n⇧C           Cancel this task's run\n/            Search tasks\nPgUp / PgDn  Scroll\nq / Ctrl+C   Quit and stop owned processes\n\nEach task keeps only its most recent run.\nEsc Back";
+            let shared = "↑↓ / j k     Select group or task\nEnter / Esc  Enter tasks / Back\n←→ / Tab     Change view (Shift+Tab reverses)\n1 / 2 / 3    Select a visible tab\n/            Search groups and tasks\nPgUp / PgDn  Scroll (Home / End for edges)\nq / Ctrl+C   Quit and stop owned processes\n";
+            let specific = if app.selection.comparing {
+                "\na / b        Select A / B from this group\ns            Swap A and B\n\nCompare shows saved configuration and metrics."
+            } else if app.tasks.is_group() {
+                "\nn            Run all tasks in this group\nC            Cancel this group's runs\n\nEach task keeps only its most recent run."
+            } else {
+                "\nn / C        Run / Cancel this task\nb / x        Open / Stop preview\ne / r / a / f Code / Report / Note / Files\nL            Log in to this provider\nc            Compare with another task in this group"
+            };
+            let text = format!("{shared}{specific}\n\nEsc Back");
             frame.render_widget(
                 Paragraph::new(text).wrap(Wrap { trim: false }),
                 area.inner(Margin::new(4, 2)),

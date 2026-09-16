@@ -462,7 +462,7 @@ export default defineConfig({
       },
       'verify:agent-ui': {
         command:
-          'cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace',
+          'cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo run -p agent-ui -- tasks --check',
         cache: false,
       },
     },

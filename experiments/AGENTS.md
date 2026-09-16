@@ -7,15 +7,37 @@ application lives in `apps/agent-ui/`. Run `vp run agent-ui` to open it.
 
 - `starter/` is an independent React and Astryx application.
 - `tasks/_template/` is an empty task template. It is not an executable task.
-- `tasks/<task-id>/task.md` contains the original prompt.
-- `tasks/<task-id>/task.toml` optionally adds or overrides npm packages for that run.
-- `tasks/<task-id>/AGENTS.md` optionally contains instructions for the generated project.
-- `tasks/<task-id>/references/` contains any supporting assets. Keep their relative paths.
+- `tasks/<group>--<variant>/task.md` contains the original prompt.
+- `tasks/<group>--<variant>/task.toml` optionally adds or overrides npm packages for that run.
+- `tasks/<group>--<variant>/AGENTS.md` optionally contains instructions for the generated project.
+- `tasks/<group>--<variant>/references/` contains any supporting assets. Keep their relative paths.
 
-To define a task, copy `tasks/_template/` to `tasks/<task-id>/`. Use the folder name as the task ID.
-Fill in the prompt. Remove `AGENTS.md` for a bare Astryx task. Add reference files when needed. The
-prompt can refer to paths such as `references/desktop.png`. Do not add generated application code or
-run reports to a task folder.
+To define a task, copy `tasks/_template/` to `tasks/<group>--<variant>/`. Use the full folder name
+as the task ID. Fill in the prompt. Remove `AGENTS.md` for a bare Astryx task. Add reference files
+when needed. The prompt can refer to paths such as `references/desktop.png`. Do not add generated
+application code or run reports to a task folder.
+
+## Task groups
+
+Use `<group>--<variant>` for every executable task folder. For example, use `smoke--baseline`,
+`smoke--context`, and `smoke--repair`. Each part must contain lowercase ASCII letters, numbers, or
+single hyphens between words. Use exactly one double hyphen between the two parts. Neither part can
+be empty or start or end with a hyphen. Limit the full ID to 120 characters. Names without a group
+are invalid. Folders that start with `_` remain excluded from discovery.
+
+The group identifies the work and its success criteria. The variant identifies a different task
+setup. Compare only different variants in the same group. Keep the main objective and success
+criteria the same. Instructions, reference assets, packages, and agent settings can differ. The
+folder name is the only source of group membership. Do not add group settings to `task.toml`.
+
+Each variant owns a complete set of inputs. To add a variant, copy the template or an existing
+variant. Change only the inputs needed for that variant. Do not inherit files from sibling folders.
+Every run starts from a fresh starter copy. A `repair` name does not start a second agent pass or
+reuse another run's output.
+
+Run `vp run agent-ui tasks --check` from the repository root after task changes. It validates names,
+prompts, input files, and package settings. It does not open run storage or start an agent. The root
+verification command includes this check. Old task names and runs have no compatibility mapping.
 
 ## Instruction scope
 
