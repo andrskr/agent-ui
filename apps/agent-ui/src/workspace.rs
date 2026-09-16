@@ -86,6 +86,14 @@ use crate::{
 };
 use std::{path::PathBuf, process::Command, time::Duration};
 
+const TOOLCHAIN: &str = "Notes about this workspace:
+
+- Vite+ manages the toolchain and the package manager. Run `vp <command>`.
+- Run `vp check` to format, lint, and type check. Run `vp run verify` to also build.
+- You can run the `package.json` scripts with `vp run <name>` or with `pnpm run <name>`.
+- Do not install a different package manager. Do not change the toolchain.
+- The workspace has no network access and no browser. Check your work with the commands above.";
+
 /// A copied and installed task workspace. Construction saves the setup baseline.
 pub(crate) struct PreparedWorkspace {
     pub app: PathBuf,
@@ -182,7 +190,7 @@ impl PreparedWorkspace {
         journal.report.before = inventory(&files.app())?;
         Ok(Self {
             app: files.app(),
-            prompt: input.prompt,
+            prompt: format!("{}\n\n{TOOLCHAIN}", input.prompt.trim_end()),
         })
     }
 

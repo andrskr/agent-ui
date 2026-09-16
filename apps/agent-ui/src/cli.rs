@@ -23,7 +23,7 @@ struct Cli {
     model: Option<String>,
     #[arg(long, global = true)]
     effort: Option<String>,
-    #[arg(long, global = true, default_value_t = 300)]
+    #[arg(long, global = true, default_value_t = 900)]
     timeout: u64,
     #[command(subcommand)]
     command: Option<Action>,

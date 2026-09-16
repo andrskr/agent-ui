@@ -34,19 +34,9 @@ impl LocalSession {
         private_dir(&bin)?;
         symlink(&tools.node, bin.join("node"))?;
         symlink(&tools.rg, bin.join("rg"))?;
-        fn quote(path: &Path) -> String {
-            format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
-        }
-        let wrapper = bin.join("vp");
-        fs::write(
-            &wrapper,
-            format!(
-                "#!/bin/sh\nexec {} {} \"$@\"\n",
-                quote(&tools.node),
-                quote(&app.join("node_modules/vite-plus/bin/vp"))
-            ),
-        )?;
-        fs::set_permissions(wrapper, fs::Permissions::from_mode(0o700))?;
+        wrapper(&bin.join("pnpm"), &[tools.pnpm.as_path()])?;
+        let vp = app.join("node_modules/vite-plus/bin/vp");
+        wrapper(&bin.join("vp"), &[tools.node.as_path(), vp.as_path()])?;
         let tmp = session.root.join("tmp");
         private_dir(&tmp)?;
         session.env = BTreeMap::from([
@@ -71,8 +61,44 @@ impl LocalSession {
         command
     }
 }
+fn script(command: &[&Path]) -> String {
+    let target = command
+        .iter()
+        .map(|part| format!("'{}'", part.to_string_lossy().replace('\'', "'\\''")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("#!/bin/sh\nexec {target} \"$@\"\n")
+}
+fn wrapper(path: &Path, command: &[&Path]) -> Result<()> {
+    fs::write(path, script(command))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
 impl Drop for LocalSession {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_wrappers_run_the_real_path_so_a_managed_shim_finds_its_own_files() {
+        assert_eq!(
+            script(&[Path::new("/tools/pnpm/12.4.1/pnpm/bin/pnpm")]),
+            "#!/bin/sh\nexec '/tools/pnpm/12.4.1/pnpm/bin/pnpm' \"$@\"\n"
+        );
+        assert_eq!(
+            script(&[
+                Path::new("/tools/node"),
+                Path::new("/app/node_modules/vite-plus/bin/vp")
+            ]),
+            "#!/bin/sh\nexec '/tools/node' '/app/node_modules/vite-plus/bin/vp' \"$@\"\n"
+        );
+        assert_eq!(
+            script(&[Path::new("/it's here/pnpm")]),
+            "#!/bin/sh\nexec '/it'\\''s here/pnpm' \"$@\"\n"
+        );
     }
 }

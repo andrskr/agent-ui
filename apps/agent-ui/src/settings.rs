@@ -22,7 +22,7 @@ impl Settings {
             provider: provider.into(),
             model: descriptor.default_model.into(),
             effort: descriptor.default_effort(descriptor.default_model).into(),
-            timeout: 300,
+            timeout: 900,
             binary: None,
         })
     }

@@ -6,6 +6,7 @@ pub struct Tools {
     pub agent: PathBuf,
     pub vp: PathBuf,
     pub node: PathBuf,
+    pub pnpm: PathBuf,
     pub rg: PathBuf,
 }
 pub fn which(name: &str) -> Result<PathBuf> {
@@ -46,6 +47,7 @@ impl Tools {
             agent,
             vp: which("vp")?,
             node,
+            pnpm: which("pnpm")?,
             rg: rg.canonicalize()?,
         })
     }

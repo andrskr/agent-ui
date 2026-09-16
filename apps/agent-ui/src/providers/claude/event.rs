@@ -171,17 +171,19 @@ impl Decoder {
                     }
                 }
                 let mut updates = vec![AgentUpdate::UsageSnapshot(usage), AgentUpdate::Cost(cost)];
-                let denied = value["permission_denials"]
-                    .as_array()
-                    .is_some_and(|v| !v.is_empty());
+                let denials = value["permission_denials"].as_array().map_or(0, Vec::len);
+                if denials > 0 {
+                    updates.push(AgentUpdate::Activity {
+                        text: format!("Sandbox refusals: {denials}"),
+                        warning: Some(format!(
+                            "The sandbox refused {denials} of the agent's commands. Read permission_denials in events.jsonl"
+                        )),
+                    });
+                }
                 let aborted = value["terminal_reason"]
                     .as_str()
                     .is_some_and(|reason| reason != "completed");
-                if value["subtype"] == "success"
-                    && value["is_error"] == false
-                    && !denied
-                    && !aborted
-                {
+                if value["subtype"] == "success" && value["is_error"] == false && !aborted {
                     updates.push(AgentUpdate::Turn(None));
                 } else {
                     let errors = value["errors"]
@@ -193,14 +195,10 @@ impl Decoder {
                                 .join("; ")
                         })
                         .unwrap_or_default();
-                    updates.push(AgentUpdate::Failure(if denied {
-                        "Claude could not obtain required tool permission".into()
-                    } else {
-                        format!(
-                            "Claude did not complete: {} {errors}",
-                            value["subtype"].as_str().unwrap_or("unknown result")
-                        )
-                    }));
+                    updates.push(AgentUpdate::Failure(format!(
+                        "Claude did not complete: {} {errors}",
+                        value["subtype"].as_str().unwrap_or("unknown result")
+                    )));
                 }
                 AgentUpdate::Batch(updates)
             }

@@ -62,7 +62,7 @@ vp run agent-ui compare smoke--baseline smoke--context --saved
 ```
 
 Use `--provider`, `--model`, `--effort`, and `--timeout` to select a run. The default is Codex,
-`gpt-5.6-luna`, `low`, and 300 seconds. Claude defaults to `claude-sonnet-5` with `high` effort. Run
+`gpt-5.6-luna`, `low`, and 900 seconds. Claude defaults to `claude-sonnet-5` with `high` effort. Run
 `providers` to print the full catalog without checking tools or login. The model must be available
 to your account. Provider errors are saved with the run.
 
@@ -119,10 +119,14 @@ Use `--project <folder>` when you start outside this repository. Use `--data-dir
 a different storage location. It must be outside the repository.
 
 Building the app needs Cargo. Opening the built UI and inspecting saved runs does not need a
-provider CLI, Node, Vite+, Git, or ripgrep. A run resolves these tools during setup, in the
-background. It uses the ripgrep bundled with Codex when available, then checks PATH. Preview needs
-Vite+ only. The app currently targets macOS. The editor action uses Visual Studio Code. Browser
-actions use the default browser. Run `vp run agent-ui doctor` to check the local paths. Use
+provider CLI, Node, Vite+, Git, pnpm, or ripgrep. A run resolves these tools during setup, in the
+background. It uses the ripgrep bundled with Codex when available, then checks PATH. The agent's
+`PATH` holds Node, ripgrep, and a wrapper for pnpm and for the `vp` command of the copied project,
+then the system folders. A wrapper keeps the real path of the target, because the pnpm that Vite+
+manages reads its own files beside that path. The agent can therefore run the project's
+`package.json` scripts by name. Each task prompt also gets notes that name these commands. Preview
+needs Vite+ only. The app currently targets macOS. The editor action uses Visual Studio Code.
+Browser actions use the default browser. Run `vp run agent-ui doctor` to check the local paths. Use
 `--binary <native-binary>` if the app cannot resolve the selected provider launcher. Optional
 `task.toml` files set task packages.
 
@@ -422,9 +426,11 @@ apply.
 
 Claude task runs expose Read, Glob, Grep, Edit, Write, and sandboxed Bash. They use restricted mode
 and `acceptEdits`. Unsandboxed Bash fallback is disabled. Assessments expose only Read, Glob, and
-Grep, with the two run folders added for reading. A denied required tool makes the operation fail.
-Task `AGENTS.md` is passed explicitly as additional instructions. Assessment task files remain
-reference evidence. Automatic model switching on content flags is disabled.
+Grep, with the two run folders added for reading. The sandbox refuses a command that reaches outside
+the workspace. The agent then sends a different command, so a refusal becomes a warning and a count
+in activity. It does not fail the run. Task `AGENTS.md` is passed explicitly as additional
+instructions. Assessment task files remain reference evidence. Automatic model switching on content
+flags is disabled.
 
 This is configuration separation, not full host isolation. Both providers use the same macOS
 account. Host reads, installed binaries, system policy, account limits, and provider caching can be

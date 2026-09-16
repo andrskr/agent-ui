@@ -122,7 +122,6 @@ fn claude_final_usage_counts_each_token_once_and_keeps_native_cost() {
 fn failed_claude_results_keep_usage_and_cost_without_completing() {
     for patch in [
         json!({"subtype":"error_max_turns","is_error":true,"errors":["Turn limit"]}),
-        json!({"permission_denials":[{"tool_name":"Bash"}]}),
         json!({"terminal_reason":"aborted_tools"}),
         json!({"terminal_reason":"context_exhausted"}),
     ] {
@@ -139,6 +138,22 @@ fn failed_claude_results_keep_usage_and_cost_without_completing() {
         assert_eq!(report.usage.unwrap().output_tokens, 40);
         assert_eq!(report.cost_usd, Some(0.017));
     }
+}
+
+#[test]
+fn sandbox_refusals_warn_but_keep_the_completed_turn() {
+    let mut event = result();
+    event.as_object_mut().unwrap().insert(
+        "permission_denials".into(),
+        json!([{"tool_name":"Bash"},{"tool_name":"Bash"}]),
+    );
+    let mut report = report();
+    feed(&mut report, &mut Decoder::default(), &event);
+    report.check_agent_completion().unwrap();
+    assert_eq!(report.completed_turns, 1);
+    assert!(report.error.is_none());
+    assert_eq!(report.warnings.len(), 1);
+    assert!(report.warnings[0].contains("refused 2 of the agent's commands"));
 }
 
 #[test]
