@@ -33,7 +33,24 @@ behavior.
 - Page Up, Page Down, Home, End, and the mouse wheel scroll content. The title, tabs, and actions
   stay visible. Activity follows new events until the user scrolls.
 
+## Sidebar hierarchy
+
+The [sidebar preview](sidebar-v2.png) uses actual Ratatui cells with sample in-memory results. Menlo
+supplies the font in this preview. The user's terminal selects the actual font and size.
+
+- Group headings use bold capitals and a full-width header band. The task count aligns right.
+- Task names use regular weight. The selected task uses bold weight and a local highlight.
+- Tree guides show membership without depending on colour.
+- Task states align right on the name row. Dates use a quieter second row.
+- Summary text and dates have less emphasis than names. Missing dates do not reserve an empty row.
+- Spacing separates group metadata from tasks and separates each task from the next one.
+- Use one character size. Portable terminal cells do not support a font size per row.
+
 ## Content rules
+
+- Sidebar group rows show task counts, status counts, and the latest run start date. Task rows show
+  the current status and run start date. `Prev` marks an older result while a replacement is pending
+  or failed to start. Dates use local time. Missing run dates stay empty.
 
 - Compare has no task tabs, run controls, file inventories, raw reports, previews, or agent actions.
 - Compare uses saved results. It never starts an agent. A missing measurement is not zero.

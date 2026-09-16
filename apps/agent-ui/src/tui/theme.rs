@@ -12,14 +12,6 @@ pub(super) const GREEN: Color = Color::Rgb(143, 221, 167);
 pub(super) const GOLD: Color = Color::Rgb(230, 194, 139);
 pub(super) const RED: Color = Color::Rgb(241, 139, 148);
 
-pub(super) fn state_color(state: State) -> Color {
-    match state {
-        State::Ready => GREEN,
-        State::Failed => RED,
-        State::Cancelled | State::Interrupted => MUTED,
-        _ => GOLD,
-    }
-}
 pub(super) fn state_word(state: State) -> &'static str {
     match state {
         State::Preparing => "Preparing",

@@ -3,6 +3,7 @@ mod details;
 mod groups;
 mod input;
 mod layout;
+mod sidebar;
 mod state;
 mod tabs;
 mod tasks;

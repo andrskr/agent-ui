@@ -9,6 +9,11 @@ to move into a group. Up and Down then select only its tasks. Press Esc to retur
 Click a group or task to select it directly. The mouse wheel follows the current level. Press `/` to
 search by group, task, or saved state. Search words must all match.
 
+The sidebar shows each group's task count, status counts, and latest run start date. Counts include
+all group members, even during search. Task rows show the current state and run start date. Active
+tasks show their phase and elapsed time. `Prev` marks an older result while a replacement is queued,
+starting, or failed to start. Dates use local time. Tasks with no run have no date.
+
 Group Overview shows all tasks in the selected group, even when search hides some sidebar rows.
 Press `n`, or click Run all tasks, to choose one provider, model, and effort for the group. The form
 states that each new run replaces its old output. Tasks already running or queued are skipped. The

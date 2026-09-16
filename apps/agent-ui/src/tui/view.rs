@@ -2,7 +2,7 @@ use super::{
     details::screen_lines,
     layout::*,
     state::{App, DetailTab, FormField, Modal},
-    tasks::{TaskRow, Tasks, local_stamp},
+    tasks::{TaskRow, Tasks},
     theme::*,
 };
 use crate::{
@@ -121,14 +121,6 @@ fn active_status(run: &Report) -> String {
         elapsed_secs(run)
     )
 }
-fn row_status(run: &Report) -> String {
-    format!(
-        "{} {} · {:.0}s",
-        spinner_frame(),
-        state_word(run.state),
-        elapsed_secs(run)
-    )
-}
 fn footer_status(screen: &Screen<'_>) -> Option<String> {
     let active: Vec<&Report> = screen
         .tasks
@@ -225,115 +217,9 @@ pub(super) fn draw_screen(frame: &mut Frame, screen: &Screen<'_>) {
     }
     for (offset, row) in rows.iter().enumerate() {
         let rect = Rect::new(list.x, list.y + offset as u16, list.width, 1);
-        match row {
-            TaskRow::Gap => {}
-            TaskRow::Group { index } => {
-                let name = super::tasks::group(&screen.tasks.items[*index].id);
-                let selected = screen.tasks.is_group() && screen.tasks.group() == Some(name);
-                frame.render_widget(
-                    Paragraph::new(fit(
-                        &format!(
-                            "{} {}",
-                            if selected { "▎" } else { "▾" },
-                            super::tasks::label(name)
-                        ),
-                        rect.width,
-                    ))
-                    .bold()
-                    .fg(if selected { ACCENT } else { TEXT })
-                    .bg(if selected { SELECTED } else { BG }),
-                    rect,
-                );
-            }
-            TaskRow::Task { index, line } => {
-                let run = &screen.tasks.items[*index];
-                let selected = !screen.tasks.is_group()
-                    && screen.tasks.current().is_some_and(|r| r.id == run.id);
-                let style = Style::default().bg(if selected { SELECTED } else { BG });
-                frame.render_widget(Block::default().style(style), rect);
-                if selected {
-                    frame.render_widget(
-                        Paragraph::new("▎").fg(ACCENT),
-                        Rect::new(rect.x, rect.y, 1, 1),
-                    );
-                }
-                let indent = if screen.tasks.is_grouped() { 4 } else { 2 };
-                let text = Rect::new(
-                    rect.x + indent,
-                    rect.y,
-                    rect.width.saturating_sub(indent + 1),
-                    1,
-                );
-                match line {
-                    0 => frame.render_widget(
-                        Paragraph::new(fit(
-                            &format!(
-                                "{}{}",
-                                if screen.selection.comparing
-                                    && screen
-                                        .selection
-                                        .pair
-                                        .as_ref()
-                                        .is_some_and(|p| p.reference == run.id)
-                                {
-                                    "A · "
-                                } else if screen.selection.comparing
-                                    && screen
-                                        .selection
-                                        .pair
-                                        .as_ref()
-                                        .is_some_and(|p| p.other == run.id)
-                                {
-                                    "B · "
-                                } else {
-                                    ""
-                                },
-                                if screen.tasks.is_grouped() {
-                                    super::tasks::label(super::tasks::variant(&run.id))
-                                } else {
-                                    run.id.clone()
-                                }
-                            ),
-                            text.width,
-                        ))
-                        .bold(),
-                        text,
-                    ),
-                    1 => {
-                        let (status, color) = if screen.queued.contains(&run.id) {
-                            ("Queued".into(), GOLD)
-                        } else if screen.queue_errors.contains_key(&run.id) {
-                            ("Start failed".into(), GOLD)
-                        } else if is_starting(screen, &run.id, run.run.as_ref()) {
-                            (format!("{} Starting…", spinner_frame()), GOLD)
-                        } else {
-                            match run.run.as_ref() {
-                                Some(r) if r.state.active() => (row_status(r), GOLD),
-                                Some(r) => (run.status().to_owned(), state_color(r.state)),
-                                None => (run.status().to_owned(), MUTED),
-                            }
-                        };
-                        frame.render_widget(
-                            Paragraph::new(fit(&status, text.width)).fg(color),
-                            text,
-                        );
-                    }
-                    _ => {
-                        let stamp = run
-                            .run
-                            .as_ref()
-                            .map(|r| {
-                                let (date, time) = local_stamp(r.created_at_ms);
-                                format!("{date} · {time}")
-                            })
-                            .unwrap_or_else(|| "No saved output".into());
-                        frame
-                            .render_widget(Paragraph::new(fit(&stamp, text.width)).fg(MUTED), text);
-                    }
-                }
-            }
-        }
+        super::sidebar::draw_row(frame, rect, screen, row);
     }
+
     if screen.tasks.current().is_some() {
         if screen.tasks.is_group() {
             let parts = detail_parts(panels[1]);

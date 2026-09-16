@@ -253,7 +253,7 @@ fn a_starting_task_shows_a_starting_placeholder_before_the_report_exists() {
     let mut screen = screen(&tasks, &selection);
     screen.starting = vec!["smoke--check".into()];
     let output = render(&screen, 120, 40);
-    assert!(output.contains("Starting…"));
+    assert!(output.contains("Starting the run…"));
     assert!(!output.contains("No current run for this task."));
     assert!(!output.contains("n Run this task"));
 }
@@ -308,7 +308,7 @@ fn small_task_window_keeps_all_three_lines_of_the_selected_task() {
         .iter()
         .filter_map(|row| match row {
             TaskRow::Task { index, line } => Some((tasks.items[*index].id.as_str(), *line)),
-            TaskRow::Gap | TaskRow::Group { .. } => None,
+            TaskRow::Gap | TaskRow::Group { .. } | TaskRow::GroupInfo { .. } => None,
         })
         .collect();
     assert_eq!(
@@ -966,4 +966,170 @@ fn setup_separates_saved_settings_from_the_changed_current_prompt() {
     assert!(!output.contains("verbose output"));
     assert!(!output.contains("created_at_ms"));
     assert!(!output.contains("src/app.tsx"));
+}
+
+#[test]
+fn sidebar_group_summary_includes_hidden_members_and_uses_the_latest_run_start() {
+    use super::sidebar::{latest_start, summary};
+    let mut tasks = grouped_tasks();
+    tasks.set_query("smoke baseline".into());
+    let selection = Selection::default();
+    let mut view = screen(&tasks, &selection);
+    view.queued.push("smoke--baseline".into());
+    view.starting.push("smoke--context".into());
+    let (count, text, _) = summary(&view, "smoke");
+    assert_eq!(count, 3);
+    assert_eq!(text, "1 starting · 1 queued · 1 not run");
+    assert_eq!(latest_start(&view, "smoke"), Some(1_789_160_000_000));
+    assert_eq!(latest_start(&view, "alpha"), None);
+    assert_eq!(summary(&view, "alpha").1, "2 not run");
+}
+
+#[test]
+fn sidebar_status_uses_live_phases_and_replacement_state_before_saved_results() {
+    use super::sidebar::{Status, status};
+    let mut tasks = tasks();
+    let selection = Selection::default();
+    for (state, expected) in [
+        (State::Preparing, Status::Preparing),
+        (State::Running, Status::Running),
+        (State::Verifying, Status::Verifying),
+        (State::Failed, Status::Failed),
+        (State::Cancelled, Status::Cancelled),
+        (State::Interrupted, Status::Interrupted),
+    ] {
+        tasks.items[0].run.as_mut().unwrap().state = state;
+        let view = screen(&tasks, &selection);
+        assert_eq!(status(&view, &tasks.items[0]).label(), expected.label());
+    }
+    tasks.items[0].run.as_mut().unwrap().state = State::Ready;
+    let mut view = screen(&tasks, &selection);
+    view.starting.push("smoke--baseline".into());
+    assert!(status(&view, &tasks.items[0]) == Status::Starting);
+    view.queued.push("smoke--baseline".into());
+    assert!(status(&view, &tasks.items[0]) == Status::Queued);
+    view.starting.clear();
+    view.queued.clear();
+    let errors =
+        std::collections::BTreeMap::from([("smoke--baseline".into(), "Cannot start".into())]);
+    view.queue_errors = &errors;
+    assert!(status(&view, &tasks.items[0]) == Status::StartFailed);
+    tasks.items[0].cleanup_pending = true;
+    let view = screen(&tasks, &selection);
+    assert!(status(&view, &tasks.items[0]) == Status::Blocked);
+}
+
+#[test]
+fn sidebar_dates_distinguish_saved_runs_from_queued_replacements() {
+    use chrono::{Local, TimeZone};
+    let mut tasks = Tasks::grouped();
+    let mut run = report("a", "smoke--baseline", 100);
+    run.created_at_ms = Local
+        .with_ymd_and_hms(2026, 9, 15, 11, 30, 0)
+        .unwrap()
+        .timestamp_millis() as u64;
+    tasks.replace(vec![TaskView {
+        id: run.task.clone(),
+        run: Some(run),
+        cleanup_pending: false,
+    }]);
+    let selection = Selection::default();
+    let mut view = screen(&tasks, &selection);
+    for width in [76, 120, 180] {
+        let output = render(&view, width, 36);
+        let sidebar_width = regions(Rect::new(0, 0, width, 36)).1[0].right() as usize;
+        let sidebar = output
+            .lines()
+            .map(|row| row.chars().take(sidebar_width).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for expected in [
+            "SMOKE",
+            "1 ready",
+            "Last 15 Sep 26 11:30",
+            "Run 15 Sep 26 11:30",
+        ] {
+            assert!(sidebar.contains(expected), "{sidebar}");
+        }
+    }
+    view.queued.push("smoke--baseline".into());
+    let output = render(&view, 76, 36);
+    let sidebar = output
+        .lines()
+        .map(|row| row.chars().take(28).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(sidebar.contains("1 queued"));
+    assert!(sidebar.contains("Prev 15 Sep 26 11:30"));
+    assert!(!sidebar.contains("Ready"));
+}
+
+#[test]
+fn sidebar_keeps_group_metadata_and_selected_task_date_visible_after_scrolling() {
+    let mut tasks = grouped_tasks();
+    tasks.select_id("smoke--context");
+    tasks.enter();
+    assert_eq!(
+        tasks.window(6),
+        [
+            TaskRow::Group { index: 2 },
+            TaskRow::GroupInfo { index: 2, line: 0 },
+            TaskRow::GroupInfo { index: 2, line: 1 },
+            TaskRow::GroupInfo { index: 2, line: 2 },
+            TaskRow::Task { index: 4, line: 0 },
+            TaskRow::Task { index: 4, line: 1 },
+        ]
+    );
+    assert!(tasks.select_row(&TaskRow::GroupInfo { index: 2, line: 1 }));
+    assert!(tasks.is_group());
+    assert_eq!(tasks.group(), Some("smoke"));
+}
+
+#[test]
+fn sidebar_typography_separates_group_task_metadata_and_selection() {
+    use ratatui::style::Modifier;
+    let mut tasks = Tasks::grouped();
+    let mut items = vec![TaskView {
+        id: "invite-member--baseline".into(),
+        run: None,
+        cleanup_pending: false,
+    }];
+    for name in ["baseline", "context", "repair"] {
+        let id = format!("smoke--{name}");
+        items.push(TaskView {
+            id: id.clone(),
+            run: Some(report(name, &id, 1_789_160_000_000)),
+            cleanup_pending: false,
+        });
+    }
+    tasks.replace(items);
+    tasks.enter();
+    let selection = Selection::default();
+    let view = screen(&tasks, &selection);
+    let mut terminal = Terminal::new(TestBackend::new(140, 40)).unwrap();
+    terminal.draw(|frame| draw_screen(frame, &view)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let find = |text: &str| {
+        for y in 0..40 {
+            let row: String = (0..35).map(|x| buffer[(x, y)].symbol()).collect();
+            if let Some(byte) = row.find(text) {
+                return (row[..byte].chars().count() as u16, y);
+            }
+        }
+        panic!("Missing sidebar text: {text}");
+    };
+    let group = find("SMOKE");
+    let task = find("Context");
+    let selected = find("Baseline");
+    let date = find("Last ");
+    assert!(buffer[group].modifier.contains(Modifier::BOLD));
+    assert!(!buffer[task].modifier.contains(Modifier::BOLD));
+    assert!(buffer[selected].modifier.contains(Modifier::BOLD));
+    assert_ne!(buffer[group].bg, buffer[task].bg);
+    assert_ne!(buffer[selected].bg, buffer[task].bg);
+    assert_ne!(buffer[date].fg, buffer[task].fg);
+    assert_eq!(buffer[(task.0 - 3, task.1)].symbol(), "├");
+    let row: String = (task.0..35).map(|x| buffer[(x, task.1)].symbol()).collect();
+    assert!(row.contains("Ready"));
+    assert_ne!(buffer[(selected.0 - 3, selected.1)].bg, buffer[selected].bg);
 }

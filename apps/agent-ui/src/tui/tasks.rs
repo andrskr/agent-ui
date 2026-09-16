@@ -1,5 +1,4 @@
 use crate::task_result::TaskView;
-use chrono::{DateTime, Local};
 
 #[derive(Default)]
 pub(super) struct Tasks {
@@ -20,22 +19,9 @@ enum Level {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum TaskRow {
     Group { index: usize },
+    GroupInfo { index: usize, line: u16 },
     Task { index: usize, line: u16 },
     Gap,
-}
-
-pub(super) fn local_stamp(ms: u64) -> (String, String) {
-    i64::try_from(ms)
-        .ok()
-        .and_then(DateTime::from_timestamp_millis)
-        .map(|date| {
-            let date = date.with_timezone(&Local);
-            (
-                date.format("%d %b %Y").to_string(),
-                date.format("%H:%M").to_string(),
-            )
-        })
-        .unwrap_or_else(|| ("Unknown date".into(), "—".into()))
 }
 
 pub(super) fn group(id: &str) -> &str {
@@ -96,7 +82,7 @@ impl Tasks {
     }
     pub fn select_row(&mut self, row: &TaskRow) -> bool {
         match *row {
-            TaskRow::Group { index } => {
+            TaskRow::Group { index } | TaskRow::GroupInfo { index, .. } => {
                 self.select(index);
                 self.leave();
             }
@@ -234,6 +220,9 @@ impl Tasks {
         let mut selected = 0;
         let mut header = 0;
         let mut selected_header = 0;
+        let mut header_rows = 0;
+        let mut selected_header_rows = 0;
+        let mut selected_task_rows = 1;
         for index in self.visible() {
             let name = group(&self.items[index].id);
             if previous != Some(name) {
@@ -242,28 +231,61 @@ impl Tasks {
                 }
                 header = rows.len();
                 rows.push(TaskRow::Group { index });
+                rows.push(TaskRow::GroupInfo { index, line: 0 });
+                if self
+                    .items
+                    .iter()
+                    .any(|t| group(&t.id) == name && t.run.is_some() && !t.cleanup_pending)
+                {
+                    rows.push(TaskRow::GroupInfo { index, line: 1 });
+                }
+                rows.push(TaskRow::GroupInfo { index, line: 2 });
+                header_rows = rows.len() - header;
                 previous = Some(name);
             }
             if self.selected.as_deref() == Some(&self.items[index].id) {
                 selected = if self.is_group() { header } else { rows.len() };
                 selected_header = header;
+                selected_header_rows = header_rows;
+                selected_task_rows =
+                    if self.items[index].run.is_some() && !self.items[index].cleanup_pending {
+                        2
+                    } else {
+                        1
+                    };
             }
             rows.push(TaskRow::Task { index, line: 0 });
-            rows.push(TaskRow::Task { index, line: 1 });
+            if self.items[index].run.is_some() && !self.items[index].cleanup_pending {
+                rows.push(TaskRow::Task { index, line: 1 });
+            }
+            rows.push(TaskRow::Task { index, line: 2 });
         }
         let height = usize::from(height);
-        let end = (selected + if self.is_group() { 1 } else { 2 }).min(rows.len());
+        // Keep the selected group details or the complete selected task in view.
+        let selected_rows = if self.is_group() {
+            selected_header_rows
+        } else {
+            selected_task_rows
+        };
+        let end = (selected + selected_rows.min(height)).min(rows.len());
         let start = if self.is_group() {
-            selected.saturating_sub(height.saturating_sub(5))
+            selected.saturating_sub(height.saturating_sub(10))
         } else {
             end.saturating_sub(height)
         };
         if start > selected_header && height > 2 {
-            let mut result = vec![rows[selected_header].clone()];
+            let header_rows = if height >= selected_header_rows + selected_task_rows {
+                selected_header_rows
+            } else {
+                1
+            };
+            let task_rows = selected_task_rows.min(height - header_rows);
+            let end = selected + task_rows;
+            let mut result = rows[selected_header..selected_header + header_rows].to_vec();
             result.extend(
                 rows.iter()
-                    .skip(end.saturating_sub(height - 1))
-                    .take(height - 1)
+                    .skip(end.saturating_sub(height - header_rows))
+                    .take(height - header_rows)
                     .cloned(),
             );
             result
