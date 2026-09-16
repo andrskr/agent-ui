@@ -13,7 +13,9 @@ pub struct TaskId<'a> {
 impl<'a> TaskId<'a> {
     pub fn parse(id: &'a str) -> Result<Self> {
         let (group, variant) = id.split_once("--").with_context(|| {
-            format!("Invalid task ID '{id}': use <group>--<variant>, such as smoke--baseline")
+            format!(
+                "Invalid task ID '{id}': use <group>--<variant>, such as invite-member--baseline"
+            )
         })?;
         ensure!(
             id.len() <= 120 && valid_part(group) && valid_part(variant),

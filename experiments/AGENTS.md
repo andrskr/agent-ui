@@ -19,11 +19,12 @@ application code or run reports to a task folder.
 
 ## Task groups
 
-Use `<group>--<variant>` for every executable task folder. For example, use `smoke--baseline`,
-`smoke--context`, and `smoke--repair`. Each part must contain lowercase ASCII letters, numbers, or
-single hyphens between words. Use exactly one double hyphen between the two parts. Neither part can
-be empty or start or end with a hyphen. Limit the full ID to 120 characters. Names without a group
-are invalid. Folders that start with `_` remain excluded from discovery.
+Use `<group>--<variant>` for every executable task folder. For example, use
+`invite-member--baseline`, `invite-member--context`, and `invite-member--repair`. Each part must
+contain lowercase ASCII letters, numbers, or single hyphens between words. Use exactly one double
+hyphen between the two parts. Neither part can be empty or start or end with a hyphen. Limit the
+full ID to 120 characters. Names without a group are invalid. Folders that start with `_` remain
+excluded from discovery.
 
 The group identifies the work and its success criteria. The variant identifies a different task
 setup. Compare only different variants in the same group. Keep the main objective and success

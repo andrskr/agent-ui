@@ -52,13 +52,13 @@ vp run agent-ui
 vp run agent-ui providers
 vp run agent-ui tasks
 vp run agent-ui tasks --check
-vp run agent-ui run smoke--baseline
-vp run agent-ui show smoke--baseline
-vp run agent-ui open smoke--baseline code
-vp run agent-ui preview smoke--baseline
-vp run agent-ui compare smoke--baseline smoke--context
-vp run agent-ui compare smoke--baseline smoke--context --assess
-vp run agent-ui compare smoke--baseline smoke--context --saved
+vp run agent-ui run invite-member--baseline
+vp run agent-ui show invite-member--baseline
+vp run agent-ui open invite-member--baseline code
+vp run agent-ui preview invite-member--baseline
+vp run agent-ui compare invite-member--baseline invite-member--context
+vp run agent-ui compare invite-member--baseline invite-member--context --assess
+vp run agent-ui compare invite-member--baseline invite-member--context --saved
 ```
 
 Use `--provider`, `--model`, `--effort`, and `--timeout` to select a run. The default is Codex,
@@ -110,9 +110,9 @@ Account access and managed policy can further limit these choices.
 ```sh
 vp run agent-ui --provider claude login
 vp run agent-ui --provider claude doctor
-vp run agent-ui --provider claude --model claude-fable-5-1 --effort high run smoke--baseline
-vp run agent-ui --provider codex --model gpt-6-astra --effort ultra run smoke--baseline
-vp run agent-ui --provider claude compare smoke--baseline smoke--context --assess
+vp run agent-ui --provider claude --model claude-fable-5-1 --effort high run invite-member--baseline
+vp run agent-ui --provider codex --model gpt-6-astra --effort ultra run invite-member--baseline
+vp run agent-ui --provider claude compare invite-member--baseline invite-member--context --assess
 ```
 
 Use `--project <folder>` when you start outside this repository. Use `--data-dir <folder>` to choose
@@ -138,11 +138,11 @@ Name each task folder `<group>--<variant>`. For example:
 ```text
 experiments/tasks/
   _template/
-  smoke--baseline/task.md
-  smoke--context/task.md
-  smoke--context/AGENTS.md
-  smoke--repair/task.md
-  smoke--repair/AGENTS.md
+  invite-member--baseline/task.md
+  invite-member--context/task.md
+  invite-member--context/AGENTS.md
+  invite-member--repair/task.md
+  invite-member--repair/AGENTS.md
 ```
 
 Each part uses lowercase ASCII letters, numbers, and single hyphens between words. Use exactly one
@@ -156,11 +156,10 @@ add another setup. Keep the main objective and success criteria the same. The ap
 names; it cannot prove that two prompts request equivalent work. Input and setup differences remain
 visible in the comparison.
 
-The original `smoke` task is now `smoke--baseline`. Old names and runs have no compatibility
-mapping. The three smoke variants have the same prompt. `baseline` has no project instructions.
-`context` adds project instructions. `repair` adds a check-and-repair step to those instructions
-within the same run. Use fresh runs for the new task IDs. Every variant starts from the starter. A
-variant named `repair` does not inherit another run's output or start a separate repair pass.
+The Invite Member variants have the same prompt. `baseline` has no project instructions. `context`
+adds the Astryx CLI and its project instructions. `repair` adds the root-quality setup profile and a
+required check-and-repair step within the same run. Every variant starts from the starter. A variant
+named `repair` does not inherit another run's output or start a separate agent pass.
 
 Run `vp run agent-ui tasks --check` after changing task inputs. It checks names, prompts, input
 files, and package settings without opening run storage or starting an agent.
@@ -197,17 +196,17 @@ not mean that a person approved the UI. Token counts do not measure UI quality.
 
 ## Optional agent assessment
 
-Run `compare smoke--baseline smoke--context --assess` from the CLI. Set its provider, model, and
-effort through CLI options. This starts a separate local session with the provider's assessment
-permissions. It reads the saved code and evidence. It does not start a browser or perform visual
-review. It produces a Markdown assessment and its own JSON report, usage, events, command,
-environment, and provider artifacts. Its token use is separate from task token use.
+Run `compare invite-member--baseline invite-member--context --assess` from the CLI. Set its
+provider, model, and effort through CLI options. This starts a separate local session with the
+provider's assessment permissions. It reads the saved code and evidence. It does not start a browser
+or perform visual review. It produces a Markdown assessment and its own JSON report, usage, events,
+command, environment, and provider artifacts. Its token use is separate from task token use.
 
 The app keeps one saved assessment. It binds the exact two run IDs and their order. Use
-`compare smoke--baseline smoke--context --saved` to read it without starting an agent. Starting an
-assessment replaces the previous assessment. Rerunning either task removes it. Swapping the pair
-does not reuse an assessment written in the other direction. An active assessment holds the
-execution lock, so a task cannot replace its evidence while the assessment reads it.
+`compare invite-member--baseline invite-member--context --saved` to read it without starting an
+agent. Starting an assessment replaces the previous assessment. Rerunning either task removes it.
+Swapping the pair does not reuse an assessment written in the other direction. An active assessment
+holds the execution lock, so a task cannot replace its evidence while the assessment reads it.
 
 ## Files and ownership
 
@@ -461,7 +460,7 @@ tests do not create files, start child processes, change the host environment, o
 editors. There are no temporary project fixtures or shell test programs.
 
 These tests do not check real file copies, locks, process cleanup, authentication, or browser and
-editor integration. Those paths need a separate manual check when requested. The smoke task starts a
+editor integration. Those paths need a separate manual check when requested. A task run starts a
 real provider and writes run files. It is not part of the test suite. Earlier manual checks are not
 proof that these paths still work after a later change.
 
