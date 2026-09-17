@@ -25,7 +25,7 @@ impl<'a> TaskId<'a> {
     }
 }
 
-fn valid_part(part: &str) -> bool {
+pub(crate) fn valid_part(part: &str) -> bool {
     part.split('-').all(|word| {
         !word.is_empty()
             && word

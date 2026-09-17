@@ -34,7 +34,7 @@ struct FileCopy {
 }
 
 /// A complete source snapshot. Setup does not read profile sources again.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct SetupPlan {
     pub task: TaskConfig,
     pub packages: TaskConfig,

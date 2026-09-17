@@ -14,11 +14,23 @@ use std::thread;
 
 pub type Active = crate::worker::Worker<Report>;
 pub fn start(store: Store, source: TaskSource, settings: Settings) -> Result<Active> {
-    let id = format!("{}-{}", now(), &uuid::Uuid::new_v4().to_string()[..8]);
+    start_with_id(store, source, settings, new_id())
+}
+pub(crate) fn new_id() -> String {
+    format!("{}-{}", now(), uuid::Uuid::new_v4())
+}
+pub(crate) fn start_with_id(
+    store: Store,
+    source: TaskSource,
+    settings: Settings,
+    id: String,
+) -> Result<Active> {
     let cancel = Cancel::default();
     let worker_cancel = cancel.clone();
     let worker_id = id.clone();
-    let worker = thread::spawn(move || run(worker_id, store, source, settings, worker_cancel));
+    let worker = thread::Builder::new()
+        .name(format!("run-{id}"))
+        .spawn(move || run(worker_id, store, source, settings, worker_cancel))?;
     Ok(Active {
         id,
         cancel,
@@ -102,6 +114,7 @@ fn execute(source: TaskSource, settings: &Settings, journal: &mut Journal) -> Re
             &store,
             &request,
             &journal.cancellation(),
+            journal.recorder.clone(),
             |observations, seconds| {
                 journal.agent_progress(seconds, observations)?;
                 if let Some(repair) = &mut repair {

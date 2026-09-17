@@ -2,7 +2,8 @@
 
 The app runs task experiments and lets a person compare their code and evidence. CLI and TUI use the
 same application service. Each task has at most one current run. Comparison joins two different
-variants from the same task group. There is no run history, approval state, or promotion step.
+variants from the same task group. Recorded CLI batches retain measurements and input snapshots in
+SQLite. There is no generated artifact history, approval state, or promotion step.
 
 ## Owners
 
@@ -34,6 +35,51 @@ variants from the same task group. There is no run history, approval state, or p
 The TUI does not read evidence files or own child processes. Pure comparison and rendering do not
 start an agent. `toolchain.rs` resolves shared tools and asks the provider to resolve its
 executable; it does not select tasks or start previews.
+
+## Recorded batches
+
+`Project::suite` validates an explicit scenario/variant selection. `Snapshot` holds all selected
+task inputs, starter files, and resolved setup plans. Its content hash binds the saved input bytes
+and execution contract. Recorded batches store this snapshot in `batches.snapshot_json`. Resume uses
+it even if the original tasks have changed. A temporary materialization supplies `TaskSource` to the
+normal runner. It is removed after the batch and after recovery from a crash.
+
+`Application` owns CLI batch execution. It uses the existing `RunQueue` and four-worker limit.
+`Ledger` owns SQLite transactions. Before a worker starts, the database reserves its unique run ID
+and attempt number. Pending tasks and attempts that failed to start remain distinct.
+
+Completion first saves the normal report. The application then saves an outbox entry under
+`ledger-pending/`, commits the metrics and task state in one SQL transaction, and removes the outbox
+entry. A repeated identical completion is a no-op. A conflicting completion fails. Completed rows
+are immutable. A retry adds a new run; successful tasks are not retried.
+
+Application startup takes the storage lock before recovery. Ledger recovery runs before ordinary
+artifact cleanup. It replays the outbox, reads reports for unfinished reservations, and records
+abandoned attempts as interrupted. Recovery time is separate from an unknown actual finish time.
+Every deletion path rejects evidence that is still pending recording. A recording error stops new
+dispatch and cancels remaining workers. The CLI exits unsuccessfully with recording errors.
+
+The database is `ledger.sqlite3` under the data directory. It survives current-artifact replacement.
+It stores typed measurement columns plus the complete terminal report JSON. `ledger info` and
+`batch show` use read-only access and do not open the runner. No comparison, export, review state,
+or report UI is added. See [the database guide](../../docs/cli-ledger.md).
+
+## Permanent activity
+
+Recorded batches reserve a capture with each run. `activity::Recorder` owns the append-only journal
+under `activity-pending/`, outside replaceable run folders. `Process` saves original output chunks
+and command boundaries. `Journal` saves phases and setup notes. Repair saves check results. Provider
+adapters own structured message and tool events. Claude also enables partial message output.
+
+Workers sync journal entries. The batch coordinator is the only SQLite writer. `ledger_activity`
+imports bounded groups with their sequence and byte offset in one transaction. Completion drains the
+journal and seals capture state in the same transaction as terminal metrics. The existing
+pending-result path supports replay. A crash leaves partial capture; cleanup follows recording.
+Completed events and logs are immutable. Schema 2 upgrades result-only schema 1 without changing old
+results or inventing their activity. `ledger events` opens the database read-only.
+
+See [the activity contract](../../docs/cli-run-activity.md) for timing limits, usage snapshots,
+byte-exact output, and recovery behavior. Generated source history and retention remain separate.
 
 ## Provider boundary
 
@@ -191,10 +237,10 @@ assessment does not run while any task run is active or queued. `Application::st
 all idle members before adding them to `RunQueue`. Existing active or queued members are skipped.
 Polling starts pending tasks as slots become free. Dispatch errors remain visible in Group Overview;
 worker failures keep their normal reports. Group cancellation removes pending entries and cancels
-active members. Quitting drops the queue. It does not resume after restart. There is no event
-database, plugin loader, or migration layer. Configuration separation does not provide full host
-isolation. Evidence can contain task text and paths. An agent code assessment cannot approve visual
-quality.
+active members. Quitting drops the TUI queue. It does not resume after restart. Recorded CLI batches
+have a persistent plan and explicit resume command. There is no event database or plugin loader.
+Configuration separation does not provide full host isolation. Evidence can contain task text and
+paths. An agent code assessment cannot approve visual quality.
 
 ## Declarative repair setup
 

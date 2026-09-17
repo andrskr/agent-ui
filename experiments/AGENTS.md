@@ -11,6 +11,8 @@ application lives in `apps/agent-ui/`. Run `vp run agent-ui` to open it.
 - `tasks/<group>--<variant>/task.toml` optionally adds or overrides npm packages for that run.
 - `tasks/<group>--<variant>/AGENTS.md` optionally contains instructions for the generated project.
 - `tasks/<group>--<variant>/references/` contains any supporting assets. Keep their relative paths.
+- `suites/<name>.toml` selects explicit scenario and variant lists for CLI batches. Every selected
+  pair must have a task. Do not add generated evidence or SQLite files to this directory.
 
 To define a task, copy `tasks/_template/` to `tasks/<group>--<variant>/`. Use the full folder name
 as the task ID. Fill in the prompt. Remove `AGENTS.md` for a bare Astryx task. Add reference files

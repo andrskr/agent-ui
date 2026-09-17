@@ -17,12 +17,20 @@ pub(crate) struct Journal {
     cancel: Cancel,
     phase: Phase,
     phase_started: Instant,
+    pub(crate) recorder: crate::activity::Recorder,
 }
 
 impl Journal {
     pub fn new(store: Store, report: Report, cancel: Cancel) -> Result<Self> {
         let files = store.files(&report.id)?;
+        let recorder = crate::activity::Recorder::open(store.root(), &report.id)?;
+        recorder.note(
+            "run.started",
+            "run",
+            serde_json::json!({"task":report.task,"provider":report.provider,"model_requested":report.model_requested,"effort_requested":report.effort_requested}),
+        )?;
         Ok(Self {
+            recorder,
             report,
             files,
             store,
@@ -40,6 +48,11 @@ impl Journal {
     }
 
     pub fn step(&mut self, text: &str) -> Result<()> {
+        self.recorder.note(
+            "activity",
+            self.phase_name(),
+            serde_json::json!({"text":text}),
+        )?;
         self.report.record(text);
         self.report.step = Some(text.to_string());
         self.update_time();
@@ -61,10 +74,24 @@ impl Journal {
         self.phase = phase;
         self.phase_started = Instant::now();
         self.save()?;
+        self.recorder
+            .note("phase.started", self.phase_name(), serde_json::json!({}))?;
         let result = work(self);
+        self.recorder.note("phase.finished", self.phase_name(), serde_json::json!({"seconds":self.phase_started.elapsed().as_secs_f64(),"error":result.as_ref().err().map(|e|format!("{e:#}"))}))?;
         self.update_time();
+        if matches!(phase, Phase::Setup) && result.is_ok() {
+            self.report.setup_finished_at_ms = Some(crate::report::now());
+        }
         self.save()?;
         result
+    }
+
+    pub(crate) fn phase_name(&self) -> &'static str {
+        match self.phase {
+            Phase::Setup => "setup",
+            Phase::Agent => "agent",
+            Phase::Verification => "verification",
+        }
     }
 
     fn update_time(&mut self) {
@@ -84,13 +111,17 @@ impl Journal {
         let evidence = self.files.evidence();
         let cancel = self.cancel.clone();
         let phase = self.phase;
-        let result = process::execute(
+        let trace = crate::activity::Trace::new(self.recorder.clone(), self.phase_name());
+        let result = process::execute_traced(
             &mut command,
-            &evidence.join(format!("{log}.log")),
-            &evidence.join(format!("{log}.stderr.log")),
+            (
+                &evidence.join(format!("{log}.log")),
+                &evidence.join(format!("{log}.stderr.log")),
+            ),
             None,
             timeout,
             &cancel,
+            trace,
             |_, _| {
                 self.update_time();
                 self.save()
@@ -140,10 +171,14 @@ impl Journal {
         if let Some(error) = &self.report.error {
             self.report.record(format!("Run ended: {error}"));
         } else {
-            self.report
-                .record("Verification passed. Ready for human review");
+            self.report.record("Verification passed. Run complete");
         }
         self.save()?;
+        self.recorder.finish(
+            serde_json::to_value(self.report.state)?
+                .as_str()
+                .unwrap_or("unknown"),
+        )?;
         Ok(self.report)
     }
 }

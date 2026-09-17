@@ -174,6 +174,7 @@ impl Store {
         let Some(id) = index.begin_removal(task) else {
             return Ok(());
         };
+        crate::ledger::Ledger::ensure_removable(&self.root, &id)?;
         // Take the preview lock before changing state or removing any files.
         let path = self.dir(&id)?;
         let _preview = path.exists().then(|| self.preview_lock(&id)).transpose()?;
@@ -184,6 +185,7 @@ impl Store {
         self.save_index(&index)
     }
     fn remove_files(&self, id: &str) -> Result<()> {
+        crate::ledger::Ledger::ensure_removable(&self.root, id)?;
         let path = self.dir(id)?;
         if path.exists() {
             fs::remove_dir_all(path)?;
@@ -218,9 +220,16 @@ impl Store {
         Ok(path)
     }
     pub fn recover(&self) -> Result<()> {
-        let Some(_lock) = self.try_run_lock()? else {
-            return Ok(());
-        };
+        // Application holds the storage lock through recovery and all later operations.
+        crate::ledger::Ledger::recover(self)?;
+        let batch_work = self.root.join("batch-work");
+        if batch_work.exists() {
+            ensure!(
+                fs::symlink_metadata(&batch_work)?.is_dir(),
+                "Batch workspace must not be a link"
+            );
+            fs::remove_dir_all(batch_work)?;
+        }
         if !self.root.join("current.json").exists() {
             self.save_selection(&Selection::default())?;
             self.save_index(&Index::default())?;

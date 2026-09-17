@@ -131,6 +131,45 @@ Code. Browser actions use the default browser. Run `vp run agent-ui doctor` to c
 paths. Use `--binary <native-binary>` if the app cannot resolve the selected provider launcher.
 Optional `task.toml` files set task packages.
 
+## Batch execution and permanent results
+
+`--record` saves permanent metrics and run activity. Logs survive task replacement. Use
+`ledger events` to read an old run without opening its generated workspace. See the
+[activity guide](../../docs/cli-run-activity.md) for SQL examples and capture limits.
+
+Run a named suite with one configuration:
+
+```sh
+vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --dry-run
+vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --record
+vp run agent-ui batch show <batch-id>
+vp run agent-ui batch resume <batch-id>
+vp run agent-ui batch resume <batch-id> --retry-incomplete
+vp run agent-ui ledger info
+vp run agent-ui ledger events <run-id> --json
+```
+
+The initial `ui-evaluation` suite selects the three Invite Member variants. Add explicit scenarios
+to `experiments/suites/ui-evaluation.toml` as they become available. Missing tasks fail validation.
+The dry run prints the exact selection and configuration without writing files or running agents.
+
+`--record` saves every result in SQLite, including unsuccessful attempts. Without this option, the
+batch is temporary and cannot resume. Each task still keeps only its latest generated artifacts. The
+SQLite ledger retains earlier metrics after those artifacts are removed. Recording needs no manual
+inspection or approval. Open the TUI after the batch if you want to inspect its latest code.
+
+The command prints its batch ID and database path. Progress goes to stderr; the final execution
+summary is JSON on stdout. Exit codes are 0 for success, 1 for incomplete execution or storage
+errors, 2 for invalid plans, and 130 for Ctrl+C.
+
+Resume uses saved inputs and configuration. It starts pending tasks only. `--retry-incomplete` also
+creates new attempts for unsuccessful tasks. It never repeats successful tasks. Resume rejects
+provider, model, effort, timeout, and binary overrides. Use a new batch to change configuration.
+
+The database schema, metric units, and read-only SQL examples are in
+[the ledger guide](../../docs/cli-ledger.md). Comparison, exports, and report generation are
+separate work; these commands only execute tasks and record evidence.
+
 ## Tasks and comparison
 
 Name each task folder `<group>--<variant>`. For example:
@@ -172,7 +211,8 @@ Starting a run removes that task's previous code, logs, and reports. The app val
 then starts the run in the background. The run stops that task's owned preview, removes any
 assessment that uses the old run, and deletes the old output before it creates the new run. It then
 checks tools and provider sign-in. A failed or cancelled new run remains the current result, and a
-sign-in or tool failure is saved as a failed run. There is no rollback or run history.
+sign-in or tool failure is saved as a failed run. There is no rollback or artifact history. Recorded
+CLI batches retain historical metrics separately in SQLite.
 
 If removal fails, the app shows `Cleanup blocked`. No new run starts. Restart the app or run that
 task again to retry cleanup. A preview owned by another process blocks removal. Stop that preview

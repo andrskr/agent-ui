@@ -17,19 +17,31 @@ struct Cli {
     data_dir: Option<PathBuf>,
     #[arg(long, global = true)]
     binary: Option<PathBuf>,
-    #[arg(long, global = true, default_value = "codex")]
-    provider: String,
+    /// Provider ID. Defaults to codex.
+    #[arg(long, global = true)]
+    provider: Option<String>,
     #[arg(long, global = true)]
     model: Option<String>,
     #[arg(long, global = true)]
     effort: Option<String>,
-    #[arg(long, global = true, default_value_t = 900)]
-    timeout: u64,
+    /// Agent time limit per task, in seconds. Defaults to 900.
+    #[arg(long, global = true)]
+    timeout: Option<u64>,
     #[command(subcommand)]
     command: Option<Action>,
 }
 #[derive(Subcommand)]
 enum Action {
+    /// Run a suite or inspect a recorded batch.
+    Batch {
+        #[command(subcommand)]
+        command: BatchAction,
+    },
+    /// Locate the permanent results database.
+    Ledger {
+        #[command(subcommand)]
+        command: LedgerAction,
+    },
     /// List providers, models, and reasoning efforts.
     Providers,
     /// Open the terminal application.
@@ -89,6 +101,52 @@ enum Action {
     /// Sign in to the selected provider.
     Login,
 }
+#[derive(Subcommand)]
+enum BatchAction {
+    /// Run every task in a named suite. Each task replaces its current artifacts.
+    Run {
+        #[arg(long)]
+        suite: String,
+        /// Record every result in SQLite, including unsuccessful attempts.
+        #[arg(long)]
+        record: bool,
+        /// Validate and print the plan without writes or provider execution.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Print the saved batch execution status as JSON.
+    Show { batch_id: String },
+    /// Continue pending tasks with the saved inputs and configuration.
+    Resume {
+        batch_id: String,
+        /// Also add a new attempt for each unsuccessful task.
+        #[arg(long)]
+        retry_incomplete: bool,
+    },
+}
+#[derive(Subcommand)]
+enum LedgerAction {
+    Info,
+    /// Read the permanent activity for one run. This does not open the runner.
+    Events {
+        run_id: String,
+        #[arg(long)]
+        json: bool,
+        #[arg(long, default_value_t = 0)]
+        after: u64,
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
+    },
+}
+
+#[derive(Debug)]
+pub struct ExitCode(pub u8);
+impl std::fmt::Display for ExitCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Command ended with exit code {}", self.0)
+    }
+}
+impl std::error::Error for ExitCode {}
 fn task_id(value: &str) -> Result<String, String> {
     crate::task::TaskId::parse(value).map_err(|error| error.to_string())?;
     Ok(value.to_owned())
@@ -106,6 +164,12 @@ fn project(cli: &Cli) -> Result<PathBuf> {
 }
 pub fn run() -> Result<()> {
     let mut cli = Cli::parse();
+    if matches!(
+        cli.command,
+        Some(Action::Batch { .. } | Action::Ledger { .. })
+    ) {
+        return run_batch_command(cli);
+    }
     if matches!(cli.command, Some(Action::Providers)) {
         println!(
             "{}",
@@ -123,17 +187,14 @@ pub fn run() -> Result<()> {
         println!("Checked {} task(s).", tasks.len());
         return Ok(());
     }
-    let root = cli
-        .data_dir
-        .clone()
-        .unwrap_or(PathBuf::from(env::var("HOME")?).join("Library/Application Support/Agent UI"));
+    let root = cli.data_root()?;
     let mut runtime = Application::open(project(&cli)?, root)?;
     match cli.command.take().unwrap_or(Action::Ui {
         snapshot: false,
         width: 120,
         height: 36,
     }) {
-        Action::Providers => unreachable!(),
+        Action::Providers | Action::Batch { .. } | Action::Ledger { .. } => unreachable!(),
         Action::Tasks { .. } => {
             for task in runtime.task_views()? {
                 println!("{:<28} {}", task.id, task.status());
@@ -247,26 +308,213 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 impl Cli {
+    fn data_root(&self) -> Result<PathBuf> {
+        self.data_dir.clone().map_or_else(
+            || Ok(PathBuf::from(env::var("HOME")?).join("Library/Application Support/Agent UI")),
+            Ok,
+        )
+    }
+    fn has_configuration_override(&self) -> bool {
+        self.provider.is_some()
+            || self.model.is_some()
+            || self.effort.is_some()
+            || self.timeout.is_some()
+            || self.binary.is_some()
+    }
     fn settings(&self) -> Result<Settings> {
-        let mut settings = Settings::for_provider(&self.provider)?;
+        let mut settings = Settings::for_provider(self.provider.as_deref().unwrap_or("codex"))?;
         if let Some(model) = &self.model {
             settings.model = model.clone();
-            settings.effort = crate::providers::descriptor(&self.provider)?
+            settings.effort = crate::providers::descriptor(&settings.provider)?
                 .default_effort(model)
                 .into();
         }
         if let Some(effort) = &self.effort {
             settings.effort = effort.clone();
         }
-        settings.timeout = self.timeout;
+        settings.timeout = self.timeout.unwrap_or(900);
         settings.binary = self.binary.clone();
         settings.validate()?;
         Ok(settings)
     }
 }
+
+fn invalid_plan<T>(result: Result<T>) -> Result<T> {
+    result.map_err(|error| {
+        eprintln!("{error:#}");
+        anyhow::Error::new(ExitCode(2))
+    })
+}
+
+fn run_batch_command(mut cli: Cli) -> Result<()> {
+    let root = cli.data_root()?;
+    let action = cli.command.take().expect("Batch command exists");
+    let outcome = match action {
+        Action::Ledger {
+            command:
+                LedgerAction::Events {
+                    run_id,
+                    json,
+                    after,
+                    limit,
+                },
+        } => {
+            let result = crate::ledger::Ledger::read_events(&root, &run_id, after, limit)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!(
+                    "Capture: {}",
+                    result["capture"]["state"].as_str().unwrap_or("unknown")
+                );
+                if let Some(error) = result["capture"]["error"].as_str() {
+                    println!("Capture note: {error}");
+                }
+                if let Some(events) = result["events"].as_array() {
+                    for e in events {
+                        println!(
+                            "{}  +{} ms  {}  {}  {}",
+                            e["sequence"],
+                            e["elapsed_ms"],
+                            e["phase"].as_str().unwrap_or(""),
+                            e["kind"].as_str().unwrap_or(""),
+                            e["details"]
+                        );
+                    }
+                }
+                if let Some(next) = result["next_after"].as_u64() {
+                    println!("More events: --after {next}");
+                }
+            }
+            return Ok(());
+        }
+        Action::Ledger {
+            command: LedgerAction::Info,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&crate::ledger::Ledger::info(&root)?)?
+            );
+            return Ok(());
+        }
+        Action::Batch {
+            command: BatchAction::Show { batch_id },
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&crate::ledger::Ledger::read_summary(
+                    &root, &batch_id
+                )?)?
+            );
+            return Ok(());
+        }
+        Action::Batch {
+            command:
+                BatchAction::Run {
+                    suite,
+                    record,
+                    dry_run,
+                },
+        } => {
+            let settings = invalid_plan(cli.settings())?;
+            let project_path = invalid_plan(project(&cli))?;
+            let project = invalid_plan(crate::project::Project::open(project_path.clone()))?;
+            let snapshot = invalid_plan(project.suite(&suite))?;
+            if dry_run {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &serde_json::json!({"suite":suite,"task_count":snapshot.tasks.len(),"tasks":snapshot.ids(),"settings":settings,"recording":record,"input_fingerprint":snapshot.fingerprint()?,"replaces_current_artifacts":true})
+                    )?
+                );
+                return Ok(());
+            }
+            let stop = Cancel::default();
+            stop.install_signal_handler()?;
+            let mut app = Application::open(project_path, root)?;
+            app.run_batch(snapshot, settings, record, stop)?
+        }
+        Action::Batch {
+            command:
+                BatchAction::Resume {
+                    batch_id,
+                    retry_incomplete,
+                },
+        } => {
+            invalid_plan((|| {
+                ensure!(
+                    !cli.has_configuration_override(),
+                    "Resume uses the saved configuration. Start a new batch to change it"
+                );
+                crate::storage::valid_run_id(&batch_id)
+            })())?;
+            let stop = Cancel::default();
+            stop.install_signal_handler()?;
+            let mut app = Application::open(project(&cli)?, root)?;
+            app.resume_batch(&batch_id, retry_incomplete, stop)?
+        }
+        _ => unreachable!(),
+    };
+    println!("{}", serde_json::to_string_pretty(&outcome)?);
+    if outcome.exit_code() != 0 {
+        return Err(ExitCode(outcome.exit_code()).into());
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_arguments_keep_recording_explicit_and_resume_configuration_fixed() {
+        let cli = Cli::try_parse_from([
+            "agent-ui",
+            "batch",
+            "run",
+            "--suite",
+            "evaluation",
+            "--record",
+            "--dry-run",
+            "--provider",
+            "claude",
+            "--model",
+            "claude-sonnet-5",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Action::Batch {
+                command: BatchAction::Run {
+                    record: true,
+                    dry_run: true,
+                    ..
+                }
+            })
+        ));
+        assert_eq!(cli.settings().unwrap().effort, "high");
+        assert!(Cli::try_parse_from(["agent-ui", "batch", "run", "--record"]).is_err());
+        let cli = Cli::try_parse_from([
+            "agent-ui",
+            "batch",
+            "resume",
+            "batch-id",
+            "--retry-incomplete",
+        ])
+        .unwrap();
+        assert!(!cli.has_configuration_override());
+        for args in [
+            ["--provider", "codex"],
+            ["--timeout", "900"],
+            ["--effort", "default"],
+            ["--model", "model"],
+            ["--binary", "/bin/agent"],
+        ] {
+            let cli =
+                Cli::try_parse_from(["agent-ui", "batch", "resume", "batch-id", args[0], args[1]])
+                    .unwrap();
+            assert!(cli.has_configuration_override());
+        }
+    }
 
     #[test]
     fn task_commands_require_group_and_variant_names() {

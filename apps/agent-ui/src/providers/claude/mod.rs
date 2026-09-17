@@ -1,3 +1,4 @@
+mod activity;
 mod catalog;
 use catalog::DESCRIPTOR;
 mod cost;
@@ -90,6 +91,7 @@ impl Provider for Claude {
         Ok(Box::new(ClaudeSession {
             local,
             decoder: event::Decoder::new(crate::report::now()),
+            activity: activity::Decoder::default(),
             session_id: uuid::Uuid::new_v4().to_string(),
         }))
     }
@@ -144,6 +146,7 @@ fn runtime_settings(config: &Path) -> serde_json::Value {
 struct ClaudeSession {
     local: LocalSession,
     decoder: event::Decoder,
+    activity: activity::Decoder,
     session_id: String,
 }
 impl Session for ClaudeSession {
@@ -164,6 +167,9 @@ impl Session for ClaudeSession {
     fn decode(&mut self, line: &[u8]) -> AgentObservation {
         self.decoder.decode(line)
     }
+    fn activity(&mut self, line: &[u8]) -> Vec<crate::activity::Event> {
+        self.activity.decode(line)
+    }
     fn finish(&self, _store: &Store, request: &Request<'_>) -> Result<()> {
         if let Some(note) = &self.decoder.note {
             fs::write(request.note, note)?;
@@ -177,6 +183,7 @@ fn command_args(request: &Request<'_>, session_id: &str) -> Vec<String> {
         "--output-format",
         "stream-json",
         "--verbose",
+        "--include-partial-messages",
         "--safe-mode",
         "--restricted",
         "--setting-sources",

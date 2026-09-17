@@ -1,8 +1,10 @@
+use crate::activity::Trace;
 use anyhow::{Context, Result, ensure};
 use nix::{
     sys::signal::{Signal, killpg},
     unistd::Pid,
 };
+use serde_json::json;
 use std::{
     fs::File,
     io::{Read, Write},
@@ -91,6 +93,76 @@ pub fn execute(
     input: Option<&str>,
     timeout: Duration,
     cancel: &Cancel,
+    on_tick: impl FnMut(&[Vec<u8>], f64) -> Result<()>,
+) -> Result<Outcome> {
+    execute_traced(
+        command,
+        (log, stderr),
+        input,
+        timeout,
+        cancel,
+        Trace::default(),
+        on_tick,
+    )
+}
+
+pub(crate) fn execute_traced(
+    command: &mut Command,
+    logs: (&Path, &Path),
+    input: Option<&str>,
+    timeout: Duration,
+    cancel: &Cancel,
+    trace: Trace,
+    on_tick: impl FnMut(&[Vec<u8>], f64) -> Result<()>,
+) -> Result<Outcome> {
+    let id = if trace.command_id.is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        trace.command_id.clone()
+    };
+    trace.event(
+        "command.started",
+        &id,
+        json!({
+            "program":command.get_program().to_string_lossy(), "args":command.get_args().map(|a|a.to_string_lossy()).collect::<Vec<_>>(),
+            "cwd":command.get_current_dir(), "stdout_name":logs.0.file_name().map(|s|s.to_string_lossy()),
+            "stderr_name":logs.1.file_name().map(|s|s.to_string_lossy()),
+            "native_command": {"program":command.get_program(), "args":command.get_args().collect::<Vec<_>>()}, "timeout_seconds":timeout.as_secs_f64()
+        }),
+    )?;
+    if let Some(input) = input {
+        trace.recorder.log(&id, "stdin", 0, input.as_bytes())?;
+    }
+    let result = execute_inner(
+        command,
+        logs,
+        input,
+        timeout,
+        cancel,
+        (&trace, &id),
+        on_tick,
+    );
+    if let Err(error) = &result {
+        trace.recorder.note(
+            "capture.incomplete",
+            &trace.phase,
+            json!({"command_id":id,"error":format!("{error:#}")}),
+        )?;
+    }
+    trace.event("command.finished", &id, match &result {
+        Ok(outcome) => json!({"exit_code":outcome.code,"seconds":outcome.seconds,"termination":format!("{:?}",outcome.termination)}),
+        Err(error) => json!({"error":format!("{error:#}")}),
+    })?;
+    result
+}
+
+fn execute_inner(
+    command: &mut Command,
+    (log, stderr): (&Path, &Path),
+    input: Option<&str>,
+    timeout: Duration,
+    cancel: &Cancel,
+    (trace, command_id): (&Trace, &str),
     mut on_tick: impl FnMut(&[Vec<u8>], f64) -> Result<()>,
 ) -> Result<Outcome> {
     ensure!(
@@ -119,9 +191,11 @@ pub fn execute(
         None
     };
     let mut running = RunningCommand { process, writer };
-    let mut reader = File::open(log)?;
+    let mut reader = TraceReader::new(File::open(log)?, trace, command_id, "stdout");
+    let mut errors = TraceReader::new(File::open(stderr)?, trace, command_id, "stderr");
     let mut output = LogLines::default();
     loop {
+        std::io::copy(&mut (&mut errors).take(1024 * 1024), &mut std::io::sink())?;
         let lines = output.read(&mut reader)?;
         on_tick(&lines, started.elapsed().as_secs_f64())?;
         let cancelled = cancel.is_cancelled();
@@ -139,6 +213,7 @@ pub fn execute(
                     written.context("Cannot submit the complete prompt")?;
                 }
             }
+            std::io::copy(&mut errors, &mut std::io::sink())?;
             let mut lines = output.read(&mut reader)?;
             lines.extend(output.finish());
             on_tick(&lines, started.elapsed().as_secs_f64())?;
@@ -155,6 +230,36 @@ pub fn execute(
             });
         }
         thread::sleep(Duration::from_millis(100));
+    }
+}
+
+struct TraceReader<'a> {
+    file: File,
+    trace: &'a Trace,
+    command: &'a str,
+    stream: &'a str,
+    offset: u64,
+}
+impl<'a> TraceReader<'a> {
+    fn new(file: File, trace: &'a Trace, command: &'a str, stream: &'a str) -> Self {
+        Self {
+            file,
+            trace,
+            command,
+            stream,
+            offset: 0,
+        }
+    }
+}
+impl Read for TraceReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let size = self.file.read(buffer)?;
+        self.trace
+            .recorder
+            .log(self.command, self.stream, self.offset, &buffer[..size])
+            .map_err(std::io::Error::other)?;
+        self.offset += size as u64;
+        Ok(size)
     }
 }
 

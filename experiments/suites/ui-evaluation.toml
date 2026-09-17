@@ -1,0 +1,3 @@
+schema_version = 1
+scenarios = ["invite-member"]
+variants = ["baseline", "context", "repair"]

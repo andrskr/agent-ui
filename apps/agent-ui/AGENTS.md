@@ -21,7 +21,8 @@ interactive TUI. Read [README.md](README.md) for the run flow, file structure, a
 - Keep task discovery in `Project`, copied app setup in `PreparedWorkspace`, and saved runs in
   `Store`.
 - Keep one current run per task. Validate inputs and tools before deleting the old output. Keep
-  replacement, locks, and recovery in `Store`. Do not add history or approval states.
+  replacement, locks, and recovery in `Store`. Recorded batches keep permanent measurements in
+  `Ledger`. Do not add artifact history or approval states.
 - Use `TaskId` for `<group>--<variant>` names. Keep run ID validation separate. The folder name is
   the only source of group membership. Do not add aliases or old-name compatibility.
 - Compare different variants from the same group through `Comparison`. Use the shared group rule for
@@ -35,7 +36,13 @@ interactive TUI. Read [README.md](README.md) for the run flow, file structure, a
 - Use the same runner for CLI and TUI actions.
 - Preserve raw events. Do not invent usage, progress percentages, or currency costs.
 - Keep credentials in private storage outside run evidence and generated projects.
-- Keep run output outside this repository. Copy task inputs only when a run starts.
+- Keep run output outside this repository. Recorded batches save input snapshots before dispatch.
+  Copy those inputs into the generated workspace when each run starts.
+- Keep suite resolution in `Project`, batch execution in `Application`, and SQL transactions in
+  `Ledger`. Recover pending ledger results before artifact cleanup. Never delete unrecorded
+  evidence.
+- Keep permanent activity capture in `activity` and `ledger_activity`. Preserve raw output bytes.
+  Only provider adapters parse provider JSON. Never label observed silence as thinking time.
 - Save failures and partial reports. Stop the owned process group on cancellation.
 - Use task IDs for normal commands. Load optional `task.toml` package settings automatically.
 - Keep task configuration declarative: exact npm packages, matching install permissions, setup

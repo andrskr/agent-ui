@@ -69,6 +69,14 @@ pub struct Report {
     pub step: Option<String>,
     pub created_at_ms: u64,
     pub finished_at_ms: Option<u64>,
+    #[serde(default)]
+    pub recovered_at_ms: Option<u64>,
+    #[serde(default)]
+    pub setup_started_at_ms: Option<u64>,
+    #[serde(default)]
+    pub setup_finished_at_ms: Option<u64>,
+    #[serde(default)]
+    pub verification_started_at_ms: Option<u64>,
     pub provider: String,
     pub model_requested: String,
     pub effort_requested: String,
@@ -124,6 +132,12 @@ impl Report {
             );
         }
         self.state = next;
+        if matches!(phase, Phase::Setup) {
+            self.setup_started_at_ms = Some(now());
+        }
+        if matches!(phase, Phase::Verification) {
+            self.verification_started_at_ms = Some(now());
+        }
         if matches!(phase, Phase::Agent) {
             self.agent_started_at_ms = Some(now());
         }
@@ -168,7 +182,8 @@ impl Report {
         if self.state.active() {
             self.state = State::Interrupted;
             self.step = None;
-            self.finished_at_ms = Some(now());
+            self.finished_at_ms = None;
+            self.recovered_at_ms = Some(now());
             self.error = Some("The runner stopped before it saved a final result".into());
             self.record("Recovered an interrupted run");
         }
@@ -188,6 +203,10 @@ impl Report {
             step: None,
             created_at_ms: now(),
             finished_at_ms: None,
+            recovered_at_ms: None,
+            setup_started_at_ms: None,
+            setup_finished_at_ms: None,
+            verification_started_at_ms: None,
             model_requested: settings.model.clone(),
             effort_requested: settings.effort.to_string(),
             provider_version: None,

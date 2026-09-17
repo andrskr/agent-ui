@@ -19,3 +19,4 @@ sha2 = "0.10"
 toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
 uuid = { version = "1", features = ["v4"] }
 serde-saphyr = { version = "1", default-features = false, features = ["deserialize", "serialize"] }
+rusqlite = { version = "0.37", features = ["bundled"] }

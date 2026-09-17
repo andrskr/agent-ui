@@ -21,13 +21,13 @@ use std::{
     process::Command,
 };
 
-const MAX_CONCURRENT_RUNS: usize = 4;
+pub(crate) const MAX_CONCURRENT_RUNS: usize = 4;
 
 /// Owns live runs and previews. Both user interfaces call this service.
 pub struct Application {
-    project: Project,
-    store: Store,
-    active: BTreeMap<String, Active>,
+    pub(crate) project: Project,
+    pub(crate) store: Store,
+    pub(crate) active: BTreeMap<String, Active>,
     previews: BTreeMap<String, Preview>,
     queue: crate::run_queue::RunQueue,
     queue_errors: BTreeMap<String, String>,
@@ -49,10 +49,10 @@ impl Application {
             !store.root().starts_with(project.root()),
             "Run storage must be outside the repository"
         );
-        store.recover()?;
         let lock = store
             .lock()
             .context("Another Agent UI instance is using this run storage")?;
+        store.recover()?;
         Ok(Self {
             project,
             store,

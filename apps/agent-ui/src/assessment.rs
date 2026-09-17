@@ -147,6 +147,7 @@ pub(crate) fn start(
                 &store,
                 &request,
                 &worker_cancel,
+                crate::activity::Recorder::default(),
                 |observations, seconds| {
                     measurement.seconds = seconds;
                     for observation in observations {

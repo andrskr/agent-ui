@@ -153,7 +153,11 @@ impl Controller {
     }
     pub fn preflight(&mut self, journal: &mut Journal) -> Result<()> {
         journal.step("Checking the repair setup")?;
-        let (attempt, _) = self.run(&journal.cancellation(), Duration::from_secs(300))?;
+        let (attempt, _) = self.run(
+            &journal.cancellation(),
+            Duration::from_secs(300),
+            crate::activity::Trace::new(journal.recorder.clone(), journal.phase_name()),
+        )?;
         write_json(&self.root.join("preflight.json"), &attempt)?;
         ensure!(
             attempt.passed,
@@ -194,6 +198,7 @@ impl Controller {
         let (attempt, output) = self.run(
             &journal.cancellation(),
             remaining.min(Duration::from_secs(300)),
+            crate::activity::Trace::new(journal.recorder.clone(), journal.phase_name()),
         )?;
         let passed = attempt.passed;
         journal.report.record(format!(
@@ -217,7 +222,11 @@ impl Controller {
         journal.step("Verifying the final repair source")?;
         let source = inventory(&self.app)?;
         require_pass(&journal.report.repair_attempts, &self.check, &source)?;
-        let (attempt, _) = self.run(&journal.cancellation(), Duration::from_secs(300))?;
+        let (attempt, _) = self.run(
+            &journal.cancellation(),
+            Duration::from_secs(300),
+            crate::activity::Trace::new(journal.recorder.clone(), journal.phase_name()),
+        )?;
         let seconds = attempt.commands.iter().map(|result| result.seconds).sum();
         journal.report.verification = Some(crate::report::Check {
             exit_code: Some(if attempt.passed { 0 } else { 1 }),
@@ -241,8 +250,18 @@ impl Controller {
         }
         Ok(())
     }
-    fn run(&mut self, cancel: &Cancel, timeout: Duration) -> Result<(Attempt, String)> {
+    fn run(
+        &mut self,
+        cancel: &Cancel,
+        timeout: Duration,
+        trace: crate::activity::Trace,
+    ) -> Result<(Attempt, String)> {
         self.sequence += 1;
+        trace.recorder.note(
+            "repair.started",
+            &trace.phase,
+            serde_json::json!({"check":self.check,"attempt":self.sequence}),
+        )?;
         let started = Instant::now();
         let source = inventory(&self.app)?;
         let mut attempt = Attempt {
@@ -305,13 +324,13 @@ impl Controller {
                 let stderr = self
                     .root
                     .join(format!("{}-{index}.stderr.log", self.sequence));
-                let outcome = process::execute(
+                let outcome = process::execute_traced(
                     &mut command,
-                    &log,
-                    &stderr,
+                    (&log, &stderr),
                     None,
                     timeout.saturating_sub(started.elapsed()),
                     cancel,
+                    crate::activity::Trace::new(trace.recorder.clone(), &trace.phase),
                     |_, _| Ok(()),
                 )?;
                 let error = process::checked(&outcome, "Repair check")
@@ -355,6 +374,11 @@ impl Controller {
             output.push_str("\nRepair check passed for this source.\n");
         }
         write_json(&self.root.join(format!("{}.json", self.sequence)), &attempt)?;
+        trace.recorder.note(
+            "repair.finished",
+            &trace.phase,
+            serde_json::json!({"attempt":self.sequence,"result":attempt}),
+        )?;
         Ok((attempt, output))
     }
 }

@@ -2,7 +2,7 @@ use crate::providers;
 use anyhow::{Result, ensure};
 use std::path::PathBuf;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     pub provider: String,
     pub model: String,

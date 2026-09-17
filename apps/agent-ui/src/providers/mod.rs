@@ -85,6 +85,9 @@ pub(crate) trait Session: Send {
     fn command(&self, request: &Request<'_>) -> Result<Command>;
     fn environment(&self) -> &BTreeMap<String, String>;
     fn decode(&mut self, line: &[u8]) -> AgentObservation;
+    fn activity(&mut self, _line: &[u8]) -> Vec<crate::activity::Event> {
+        Vec::new()
+    }
     fn finish(&self, store: &Store, request: &Request<'_>) -> Result<()>;
 }
 // Add each provider once. All shared callers use this registry.
@@ -119,6 +122,7 @@ pub(crate) fn execute(
     store: &Store,
     request: &Request<'_>,
     cancel: &Cancel,
+    recorder: crate::activity::Recorder,
     mut observe: impl FnMut(Vec<AgentObservation>, f64) -> Result<()>,
 ) -> Result<Execution> {
     let mut command = session.command(request)?;
@@ -133,14 +137,27 @@ pub(crate) fn execute(
             "program": command.get_program(), "args": command.get_args().collect::<Vec<_>>()
         }),
     )?;
-    let outcome = process::execute(
+    let trace = crate::activity::Trace::new(recorder.clone(), "agent");
+    let command_id = trace.command_id.clone();
+    let outcome = process::execute_traced(
         &mut command,
-        &request.evidence.join("events.jsonl"),
-        &request.evidence.join("agent.stderr.log"),
+        (
+            &request.evidence.join("events.jsonl"),
+            &request.evidence.join("agent.stderr.log"),
+        ),
         Some(request.prompt),
         Duration::from_secs(request.settings.timeout),
         cancel,
+        trace,
         |lines, seconds| {
+            if recorder.enabled() {
+                for line in lines {
+                    for mut event in session.activity(line) {
+                        event.command_id = Some(command_id.clone());
+                        recorder.event(event)?;
+                    }
+                }
+            }
             observe(
                 lines.iter().map(|line| session.decode(line)).collect(),
                 seconds,
