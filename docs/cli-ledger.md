@@ -10,8 +10,9 @@ vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude
 vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --record
 ```
 
-The included suite has one scenario and three variants. It is ready to extend as new scenarios are
-added. Suite files live in `experiments/suites/`:
+The `ui-evaluation` suite selects Invite member and its three variants. The `project-list` suite
+selects Project list and its three variants. Use `--suite project-list --timeout 1800` for a
+30-minute agent timeout per task. Suite files live in `experiments/suites/`:
 
 ```toml
 schema_version = 1
