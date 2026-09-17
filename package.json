@@ -10,7 +10,8 @@
     "lint": "vp lint",
     "test": "vp run -r test",
     "build": "vp run -r build",
-    "verify": "vp run format && vp run lint && vp run build && vp run verify:agent-ui",
+    "verify": "vp run format && vp run lint && vp run build && vp run verify:agent-ui && vp run verify:experiment-report",
+    "verify:experiment-report": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .agents/skills/experiment-report/scripts -p 'test_*.py'",
     "prepare": "vp config --no-agent"
   },
   "devDependencies": {

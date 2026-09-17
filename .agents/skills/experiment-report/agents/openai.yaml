@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Experiment report'
+  short_description: 'Run experiments and build frozen HTML reports'
+  default_prompt: 'Use $experiment-report to run the selected scenario with my model and generate the standard HTML report.'

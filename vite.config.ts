@@ -2,8 +2,15 @@ import { defineConfig } from 'vite-plus';
 
 import { qualityConfig } from './tools/quality/config.ts';
 
+const quality = qualityConfig();
+
 export default defineConfig({
-  ...qualityConfig(),
+  ...quality,
+  fmt: {
+    ...quality.fmt,
+    // Keep approved report snapshots byte-for-byte unchanged.
+    ignorePatterns: [...(quality.fmt?.ignorePatterns ?? []), 'reports/**/*.html'],
+  },
   run: {
     cache: true,
     tasks: {
