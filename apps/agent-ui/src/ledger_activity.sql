@@ -67,4 +67,4 @@ CREATE TRIGGER sealed_log_update BEFORE UPDATE ON run_log_chunks
 BEGIN SELECT RAISE(ABORT,'Recorded activity is immutable'); END;
 CREATE TRIGGER sealed_log_delete BEFORE DELETE ON run_log_chunks
 BEGIN SELECT RAISE(ABORT,'Recorded activity is immutable'); END;
-PRAGMA user_version=2;
+PRAGMA user_version=3;

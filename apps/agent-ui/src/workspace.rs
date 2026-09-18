@@ -101,7 +101,6 @@ const TOOLCHAIN: &str = "Notes about this workspace:
 pub(crate) struct PreparedWorkspace {
     pub app: PathBuf,
     pub prompt: String,
-    pub repair: Option<(String, crate::profile::CheckDefinition)>,
 }
 impl PreparedWorkspace {
     pub fn prepare(source: TaskSource, journal: &mut Journal, tools: &Tools) -> Result<Self> {
@@ -135,24 +134,6 @@ impl PreparedWorkspace {
             fs::write(target, bytes)?;
         }
         write_json(&evidence.join("setup-plan.json"), &source.plan)?;
-        let repair = input
-            .config
-            .repair
-            .as_ref()
-            .map(|repair| {
-                source
-                    .plan
-                    .checks
-                    .get(&repair.check)
-                    .cloned()
-                    .map(|definition| (repair.check.clone(), definition))
-                    .ok_or_else(|| anyhow::anyhow!("Repair check changed after preflight"))
-            })
-            .transpose()?;
-        if repair.is_some() {
-            crate::repair::install_client(&files.app())?;
-            journal.report.isolation.push_str(" For this repair task, setup checks, in-pass checks, and final verification use separate macOS sandbox snapshots with no network and fixed dependencies.");
-        }
         let config = source.plan.packages;
         write_json(&evidence.join("task-config.json"), &config)?;
         journal.report.task_config = Some(config.clone());
@@ -225,17 +206,8 @@ impl PreparedWorkspace {
         )?;
         journal.report.before = inventory(&files.app())?;
         Ok(Self {
-            repair,
             app: files.app(),
-            prompt: format!(
-                "{}\n\n{TOOLCHAIN}{}",
-                input.prompt.trim_end(),
-                if input.config.repair.is_some() {
-                    "\n\nThis task requires repair. Run `vp run repair` before finishing. Read all diagnostics, fix the source, and repeat in this same session until it passes. Run it again after any source edit. Keep setup files and check configuration unchanged. A direct build or verify command does not satisfy this requirement."
-                } else {
-                    ""
-                }
-            ),
+            prompt: format!("{}\n\n{TOOLCHAIN}", input.prompt.trim_end()),
         })
     }
 

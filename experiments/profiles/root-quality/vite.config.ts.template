@@ -1,7 +1,0 @@
-import { defineConfig, mergeConfig } from 'vite-plus';
-
-import { qualityConfig } from './tools/quality/config.ts';
-import base from './vite.base.ts';
-
-// Keep the starter plugins when Vite+ adds plugins to the quality configuration.
-export default defineConfig(mergeConfig(base, qualityConfig('src')));

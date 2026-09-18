@@ -3,11 +3,11 @@
 A local application for coding experiments. The CLI and TUI use the same Rust runner. The terminal
 view uses a charcoal background, a mint accent, and separate colours for run states.
 
-The sidebar shows groups with their tasks below them. For example, Smoke contains Baseline, Context,
-and Repair. The tree stays visible at both navigation levels. Up and Down select groups. Press Enter
-to move into a group. Up and Down then select only its tasks. Press Esc to return to the group.
-Click a group or task to select it directly. The mouse wheel follows the current level. Press `/` to
-search by group, task, or saved state. Search words must all match.
+The sidebar shows groups with their tasks below them. For example, Smoke contains Baseline and
+Context. The tree stays visible at both navigation levels. Up and Down select groups. Press Enter to
+move into a group. Up and Down then select only its tasks. Press Esc to return to the group. Click a
+group or task to select it directly. The mouse wheel follows the current level. Press `/` to search
+by group, task, or saved state. Search words must all match.
 
 The sidebar shows each group's task count, status counts, and latest run start date. Counts include
 all group members, even during search. Task rows show the current state and run start date. Active
@@ -140,8 +140,8 @@ Optional `task.toml` files set task packages.
 Run a named suite with one configuration:
 
 ```sh
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --dry-run
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --record
+vp run agent-ui batch run --suite recent-transactions --provider claude --model claude-sonnet-5 --dry-run
+vp run agent-ui batch run --suite recent-transactions --provider claude --model claude-sonnet-5 --record
 vp run agent-ui batch show <batch-id>
 vp run agent-ui batch resume <batch-id>
 vp run agent-ui batch resume <batch-id> --retry-incomplete
@@ -149,9 +149,9 @@ vp run agent-ui ledger info
 vp run agent-ui ledger events <run-id> --json
 ```
 
-The initial `ui-evaluation` suite selects the three Invite Member variants. Add explicit scenarios
-to `experiments/suites/ui-evaluation.toml` as they become available. Missing tasks fail validation.
-The dry run prints the exact selection and configuration without writing files or running agents.
+The `recent-transactions` suite selects baseline and context. Add explicit scenarios to suite files
+as they become available. Missing tasks fail validation. The dry run prints the exact selection and
+configuration without writing files or running agents.
 
 `--record` saves every result in SQLite, including unsuccessful attempts. Without this option, the
 batch is temporary and cannot resume. Each task still keeps only its latest generated artifacts. The
@@ -181,8 +181,6 @@ experiments/tasks/
   invite-member--baseline/AGENTS.md
   invite-member--context/task.md
   invite-member--context/AGENTS.md
-  invite-member--repair/task.md
-  invite-member--repair/AGENTS.md
 ```
 
 Each part uses lowercase ASCII letters, numbers, and single hyphens between words. Use exactly one
@@ -197,13 +195,10 @@ names; it cannot prove that two prompts request equivalent work. Input and setup
 visible in the comparison.
 
 The old scenario catalog has been cleared. See [the scenario index](../../experiments/SCENARIOS.md)
-for the replacement plan. New scenarios must have matching prompts across their three variants.
-Every variant has the same general workflow in `AGENTS.md` and receives the shared starter's Astryx
-and Recharts runtime packages. `baseline` has only the general instructions. `context` adds the
-Astryx CLI and Astryx-specific guidance. `repair` adds the root-quality setup profile and requires
-`vp lint src --fix`, `vp fmt src --write`, and `vp run repair` within the same run. This workflow
-applies to old and new tasks. Every variant starts from the starter. A variant named `repair` does
-not inherit another run's output or start a separate agent pass.
+for the replacement plan. New scenarios must have matching prompts across their two variants. Every
+variant has the same general workflow in `AGENTS.md` and receives the shared starter's Astryx and
+Recharts runtime packages. `baseline` has only the general instructions. `context` adds the Astryx
+CLI and Astryx-specific guidance. Every variant starts from the starter.
 
 Run `vp run agent-ui tasks --check` after changing task inputs. It checks names, prompts, input
 files, and package settings without opening run storage or starting an agent.

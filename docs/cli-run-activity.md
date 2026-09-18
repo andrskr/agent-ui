@@ -40,7 +40,6 @@ The recorder saves:
 - Original provider stdout, including partial deltas, unknown events, and malformed JSON.
 - Claude message content, message usage snapshots, tool requests, tool results, stream boundaries,
   provider results, and errors as structured events.
-- Repair check start, result, source hashes, and each check command's output.
 
 Claude uses `--include-partial-messages`. Its provider adapter owns the event format. Other
 providers retain original process output and runner events; they do not yet have Claude's structured
@@ -53,9 +52,8 @@ Link a request to its result by `tool_call_id`. A missing result remains missing
 links them to the provider command and its original stdout. Parent tool IDs stay available when the
 provider supplies them. The recorder does not infer hidden retries or work that the provider omits.
 
-Repair checks can occur inside the agent phase. Do not add nested check durations to the outer agent
-duration. Parallel tool intervals can also overlap. Cost stays an API price estimate. There is no
-exact allocation of run cost to individual tools.
+Tool work occurs inside the agent phase. Parallel tool intervals can overlap. Cost stays an API
+price estimate. There is no exact allocation of run cost to individual tools.
 
 Raw output stays byte-exact, including invalid UTF-8. Command details include readable arguments and
 their native representation. Logs can contain prompt text, generated code, and tool output. The
@@ -67,10 +65,8 @@ latest-per-task. Full code review of an old workspace can require a separate sou
 
 ## Database schema
 
-Schema 2 adds three tables and one view. Opening the runner upgrades a schema 1 ledger in a
-transaction. Existing results stay unchanged. Old runs have no `run_capture` row; the read command
-reports `not_recorded`. It does not invent historical events. Read-only commands also support the
-original schema without upgrading it.
+Schema 3 includes three activity tables and one view. A run without a `run_capture` row is reported
+as `not_recorded`. The runner does not invent historical events.
 
 | Object              | Content                                                                                             |
 | ------------------- | --------------------------------------------------------------------------------------------------- |

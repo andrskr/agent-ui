@@ -7,7 +7,7 @@ application lives in `apps/agent-ui/`. Run `vp run agent-ui` to open it.
 
 - `starter/` is an independent React and Astryx application.
 - `tasks/_template/` holds the prompt shell and shared workflow instructions. It is not executable.
-- `instructions/astryx.md` holds the additional Astryx instructions for context and repair tasks.
+- `instructions/astryx.md` holds the additional Astryx instructions for context tasks.
 - `tasks/<group>--<variant>/task.md` contains the original prompt.
 - `tasks/<group>--<variant>/task.toml` optionally adds or overrides npm packages for that run.
 - `tasks/<group>--<variant>/AGENTS.md` optionally contains instructions for the generated project.
@@ -23,11 +23,11 @@ generated application code or run reports to a task folder.
 ## Task groups
 
 Use `<group>--<variant>` for every executable task folder. For example, use
-`invite-member--baseline`, `invite-member--context`, and `invite-member--repair`. Each part must
-contain lowercase ASCII letters, numbers, or single hyphens between words. Use exactly one double
-hyphen between the two parts. Neither part can be empty or start or end with a hyphen. Limit the
-full ID to 120 characters. Names without a group are invalid. Folders that start with `_` remain
-excluded from discovery.
+`recent-transactions--baseline` and `recent-transactions--context`. Each part must contain lowercase
+ASCII letters, numbers, or single hyphens between words. Use exactly one double hyphen between the
+two parts. Neither part can be empty or start or end with a hyphen. Limit the full ID to 120
+characters. Names without a group are invalid. Folders that start with `_` remain excluded from
+discovery.
 
 The group identifies the work and its success criteria. The variant identifies a different task
 setup. Compare only different variants in the same group. Keep the main objective and success
@@ -36,8 +36,7 @@ folder name is the only source of group membership. Do not add group settings to
 
 Each variant owns a complete set of inputs. To add a variant, copy the template or an existing
 variant. Change only the inputs needed for that variant. Do not inherit files from sibling folders.
-Every run starts from a fresh starter copy. A `repair` name does not start a second agent pass or
-reuse another run's output.
+Every run starts from a fresh starter copy.
 
 Run `vp run agent-ui tasks --check` from the repository root after task changes. It validates names,
 prompts, input files, and package settings. It does not open run storage or start an agent. The root
@@ -52,9 +51,9 @@ flows. A model run uses the checked-in inputs; do not upgrade packages or rewrit
 incidental part of running it. Saved ledger snapshots and frozen reports keep their original inputs
 and measurements.
 
-- Write the same `task.md` prompt for all three variants. Keep the objective, behavior, and success
-  criteria the same. Put variant-specific instructions in the task's `AGENTS.md` and package or
-  check settings in `task.toml`.
+- Write the same `task.md` prompt for both variants. Keep the objective, behavior, and success
+  criteria the same. Put variant-specific instructions in the task's `AGENTS.md` and package
+  settings in `task.toml`.
 - Do not add accessibility or responsive behavior requirements to scenario prompts. Preserve the
   installed components' normal behavior.
 - Use fixed local reference data when a scenario needs content or records. Copy the same reference
@@ -63,45 +62,16 @@ and measurements.
   shared block contains general tool use, package discovery, file limits, and validation. Keep it
   free of Astryx CLI commands, design rules, theme-token rules, and template-specific advice.
 - Baseline uses that shared block and the shared starter, including Recharts. It has no additional
-  Astryx guidance or CLI packages. Keep the available-package statement in all three prompt copies.
+  Astryx guidance or CLI packages. Keep the available-package statement in both prompt copies.
 - Context appends `instructions/astryx.md` after the shared block. Add the exact CLI and tokenizer
   versions from the current context task configuration. Match the CLI install permission to its
   declared version.
-- Repair includes the same context inputs, the `root-quality` setup profile, and
-  `[repair] check = "quality"`. Append the repair instructions below to its own `AGENTS.md`.
-- When adding general workflow advice, apply it to all three variants. Keep scenario requirements in
-  their matching prompts. Reserve context additions for Astryx-specific guidance and repair
-  additions for the required quality workflow. Do not give only context a general tooling advantage.
-- Add a suite that selects only the new scenario and its three variants. Validate the inputs with
+- When adding general workflow advice, apply it to both variants. Keep scenario requirements in
+  their matching prompts. Reserve context additions for Astryx-specific guidance. Do not give only
+  context a general tooling advantage.
+- Add a suite that selects only the new scenario and its two variants. Validate the inputs with
   `vp run agent-ui tasks --check`. Inspect the batch dry-run plan before execution. Preparation
   alone does not start a model run.
-
-Copy this block into every repair task's `AGENTS.md`, after its complete context instructions. Keep
-it the same for old and new scenarios. These are instructions for the experiment agent, not commands
-to run while preparing the scenario:
-
-```md
-## Required repair check
-
-Use this repair workflow for this scenario:
-
-1. After you build or edit the task UI, run `vp lint src --fix` from the app directory. Use normal
-   fixes only. Read any errors that remain and fix the source. Do not enable unsafe fixes.
-2. Run `vp fmt src --write` after lint fixes, even if lint reports errors. Lint fixes can change
-   source formatting.
-3. Run `vp run repair` as a separate command. This is the required check.
-4. Read the complete diagnostics. Fix all reported source errors, then repeat these steps.
-5. Finish only when repair passes for the current source. Repeat these steps after any later source
-   edit. Use this same agent session.
-
-Run one operation per tool call. Use the tool's working directory when it is available. Do not pipe
-repair output through `head`, `tail`, or `grep`. Do not truncate the diagnostics.
-
-Do not use `astryx run repair` or `vp check --fix`. Scope lint fixes and formatting to `src/` so
-they do not modify runner helpers or setup files. The repair command checks a separate source copy
-with the runner's saved configuration. Do not change the check configuration, dependencies, or
-repair tools. A passing build alone is not sufficient.
-```
 
 ## Instruction scope
 
@@ -179,25 +149,25 @@ already in use.
 When an upgrade is requested, update the complete setup together:
 
 1. Align Astryx core, theme, build, and CLI versions in the root catalog, independent starter, and
-   every context/repair `task.toml`. Update matching install permissions and both lockfiles. Read
-   exact versions from the manifests; do not copy versions from a historical report.
+   every context `task.toml`. Update matching install permissions and both lockfiles. Read exact
+   versions from the manifests; do not copy versions from a historical report.
 2. Keep `react-is` aligned with React when updating Recharts. Install shared runtime dependencies in
-   the starter so baseline, context, and repair have the same available UI packages.
+   the starter so baseline and context have the same available UI packages.
 3. Regenerate the Astryx block with the installed CLI in `apps/playground` using
    `vp exec astryx init --features agents --agent-docs-path AGENTS.md`. Copy that block into
    `instructions/astryx.md`. Keep general workflow advice in `tasks/_template/AGENTS.md`.
-4. Copy the shared workflow into every baseline, context, and repair `AGENTS.md`. Append
-   `instructions/astryx.md` to context and repair, then append the repair block above to repair.
-   Apply additional general advice to all three variants. Keep Astryx-only advice in the Astryx
-   section. Each resulting task file must be complete; do not add runtime inheritance.
+4. Copy the shared workflow into every baseline and context `AGENTS.md`. Append
+   `instructions/astryx.md` to context. Apply additional general advice to both variants. Keep
+   Astryx-only advice in the Astryx section. Each resulting task file must be complete; do not add
+   runtime inheritance.
 5. Review the CLI migration plan with `vp exec astryx upgrade --from PREVIOUS_VERSION` from
    `apps/playground`. Apply needed source changes. Rebuild generated themes. Refresh examples in
    this file, the task template, scenario index, runner README, and experiment-report skill.
-6. Check that each group's prompts and reference bytes match across variants. Check that all three
-   instruction files have the same shared prefix and only the intended additions. Check every repair
-   profile, required check, and workflow. Run `vp run agent-ui tasks --check`, starter verification,
-   and root verification. For runtime package changes, install and build a source-only copy and
-   check the relevant UI in the browser. Stop test servers after the check.
+6. Check that each group's prompts and reference bytes match across variants. Check that both
+   instruction files have the same shared prefix and only the intended additions. Check each task
+   configuration. Run `vp run agent-ui tasks --check`, starter verification, and root verification.
+   For runtime package changes, install and build a source-only copy and check the relevant UI in
+   the browser. Stop test servers after the check.
 
 These changes affect future batches only. Do not regenerate old reports, rewrite ledger evidence, or
 start paid experiments as part of an instruction update. For an authorized fresh rerun, create a new
@@ -211,51 +181,3 @@ The Vite+ alias reports version 0.3.1 to peer checks, although it contains Vite 
 therefore report unmet Vite peers. Keep these warnings visible. The Astryx core lifecycle-script
 approval matches the existing root workspace approval. Its install script can suggest `astryx init`.
 Do not run it automatically. A task can supply the run's `AGENTS.md`.
-
-## Setup profiles and repair
-
-A task can select reusable setup profiles and require an in-pass check:
-
-```toml
-[setup]
-profiles = ["root-quality"]
-
-[repair]
-check = "quality"
-```
-
-Profiles live in `experiments/profiles/<name>/profile.toml`. They declare exact package versions,
-install permissions, file copies, and named checks. Profile sources are relative to the repository
-root. Destinations are relative to the run workspace. `replace = true` is required to replace a
-starter file. Conflicts between profiles are errors. Exclusions accept a relative file or directory,
-or `**/*.suffix`. Links and paths outside the source root are not allowed. Task prompts,
-`AGENTS.md`, reference assets, package manifests, and runner files are reserved destinations. Each
-task still owns its complete prompt and instructions. Profiles do not inherit sibling tasks.
-
-The root-quality profile copies the shared Vite+ policy and the custom Oxlint source package. It
-adds the exact plugin dependency. The profile configuration composes this policy with the starter
-build configuration. It maps the application source path to `src`; rule settings stay the same. Use
-`mergeConfig` for this composition. Vite+ adds plugins to `qualityConfig`, so a shallow object
-spread would replace the starter's StyleX and React plugins. Check a copied repair app that uses
-`stylex.create` in both the dev server and production preview after configuration changes. A build
-can pass with an uncompiled StyleX call that fails when the browser loads the page.
-
-Repair is opt-in. The runner adds `vp run repair` and a required-check instruction to the submitted
-prompt. The task's AGENTS.md remains a separate, unchanged input. The command requests the named
-check from the runner. The runner checks a source snapshot with saved dependencies, without network
-access. It returns diagnostics to the same agent session. No second agent pass starts. A failed
-check must be fixed and run again. A successful first check is valid. Direct `vp check` or
-`vp run verify` commands do not satisfy the recorded repair requirement.
-
-Setup runs the complete check before the agent starts. Repair fails setup if the unchanged starter
-cannot pass. Source and public assets can change during the task. Files outside `src/` and `public/`
-must keep their setup hashes. The final source must match the latest passing repair check. The
-runner then checks it again and copies the verified build to `app/dist`. Missing checks, failed
-checks, changed setup files, and source changes after a pass prevent Ready. Git staging and hooks
-are not required.
-
-The first repair command sandbox uses macOS Seatbelt. Other platforms reject repair during task
-validation. Baseline and context tasks keep their current provider behavior. Check logs, command
-results, source hashes, and preflight/final results are saved under `evidence/repair`. In-pass check
-time is part of total agent time. The controller uses a private dependency copy and an empty check
-home. Keep run storage outside the agent's writable workspace and temporary roots.

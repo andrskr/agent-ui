@@ -15,7 +15,6 @@ pub mod process;
 mod profile;
 mod project;
 pub mod providers;
-pub mod repair;
 pub mod report;
 mod run_queue;
 mod runner;

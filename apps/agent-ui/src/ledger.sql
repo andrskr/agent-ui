@@ -62,7 +62,6 @@ CREATE TABLE runs (
     cost_basis TEXT,
     cost_source TEXT,
     cost_models_json TEXT,
-    repair_check_count INTEGER,
     changed_file_count INTEGER,
     completed_turns INTEGER,
     invalid_event_lines INTEGER,
@@ -72,16 +71,6 @@ CREATE TABLE runs (
     FOREIGN KEY(batch_id, task_id) REFERENCES batch_tasks(batch_id, task_id),
     UNIQUE(batch_id, task_id, attempt_number)
 );
-CREATE TABLE repair_attempts (
-    run_id TEXT NOT NULL REFERENCES runs(run_id),
-    attempt_index INTEGER NOT NULL,
-    check_name TEXT NOT NULL,
-    passed INTEGER NOT NULL CHECK(passed IN (0,1)),
-    source_fingerprint TEXT NOT NULL,
-    commands_json TEXT NOT NULL,
-    error TEXT,
-    PRIMARY KEY(run_id, attempt_index)
-);
 CREATE INDEX runs_configuration ON runs(provider, model_requested, task_id);
 CREATE INDEX runs_recording ON runs(recorded_at_ms);
 CREATE TRIGGER immutable_run_update BEFORE UPDATE ON runs
@@ -90,12 +79,5 @@ BEGIN SELECT RAISE(ABORT, 'Completed ledger results are immutable'); END;
 CREATE TRIGGER immutable_run_delete BEFORE DELETE ON runs
 WHEN OLD.recorded_at_ms IS NOT NULL
 BEGIN SELECT RAISE(ABORT, 'Completed ledger results are immutable'); END;
-CREATE TRIGGER immutable_repair_update BEFORE UPDATE ON repair_attempts
-BEGIN SELECT RAISE(ABORT, 'Repair evidence is immutable'); END;
-CREATE TRIGGER immutable_repair_delete BEFORE DELETE ON repair_attempts
-BEGIN SELECT RAISE(ABORT, 'Repair evidence is immutable'); END;
-CREATE TRIGGER immutable_repair_insert BEFORE INSERT ON repair_attempts
-WHEN (SELECT recorded_at_ms FROM runs WHERE run_id = NEW.run_id) IS NOT NULL
-BEGIN SELECT RAISE(ABORT, 'Completed repair evidence is immutable'); END;
-PRAGMA user_version = 1;
+PRAGMA user_version = 3;
 PRAGMA application_id = 1096109132;

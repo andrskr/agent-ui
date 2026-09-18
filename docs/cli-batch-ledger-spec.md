@@ -7,7 +7,7 @@ Status: implemented contract. See [the usage and database guide](cli-ledger.md).
 Run a named suite with one provider and model. Save each result to a permanent local SQLite
 database. Later, a person or agent can query that database to prepare a report.
 
-A suite with 12 scenarios and three variants selects 36 tasks. Each task runs once in a new batch. A
+A suite with 12 scenarios and two variants selects 24 tasks. Each task runs once in a new batch. A
 second batch adds new records. It does not replace earlier records.
 
 The feature includes suite selection, batch execution, automatic recording, and restart support.
@@ -21,8 +21,8 @@ the latest generated code and preview after the CLI releases the storage lock.
 
 | Term     | Definition                                                         |
 | -------- | ------------------------------------------------------------------ |
-| Scenario | The existing task group, such as `invite-member`.                  |
-| Variant  | The existing variant, such as `baseline`, `context`, or `repair`.  |
+| Scenario | The existing task group, such as `recent-transactions`.            |
+| Variant  | The existing variant, such as `baseline` or `context`.             |
 | Suite    | A named, explicit selection of scenarios and variants.             |
 | Batch    | One execution of the resolved suite with one configuration.        |
 | Run      | One attempt to execute one task. Each attempt has a unique run ID. |
@@ -38,12 +38,12 @@ work can change. Do not add approval or promotion states.
 ## Suite file
 
 Store suites at `experiments/suites/<name>.toml`. Use the existing lowercase identifier rules. The
-following example selects three tasks from the current Invite Member scenario:
+following example selects two tasks from the Recent transactions scenario:
 
 ```toml
 schema_version = 1
-scenarios = ["invite-member"]
-variants = ["baseline", "context", "repair"]
+scenarios = ["recent-transactions"]
+variants = ["baseline", "context"]
 ```
 
 Resolve the cross product in file order: scenario first, then variant. Require every selected task
@@ -66,10 +66,10 @@ Run these commands from the repository root.
 
 ```sh
 # Run every task in the suite and save every result.
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --record
+vp run agent-ui batch run --suite recent-transactions --provider claude --model claude-sonnet-5 --record
 
 # Check the resolved selection without running agents or replacing output.
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --dry-run
+vp run agent-ui batch run --suite recent-transactions --provider claude --model claude-sonnet-5 --dry-run
 
 # Inspect execution and recording status.
 vp run agent-ui batch show <batch-id>
@@ -84,7 +84,7 @@ vp run agent-ui batch resume <batch-id> --retry-incomplete
 vp run agent-ui ledger info
 ```
 
-The included `ui-evaluation` suite selects the three current Invite Member tasks. Extend its
+The included `recent-transactions` suite selects the two Recent transactions tasks. Extend its
 explicit scenario list as new tasks are added. There are not yet 12 scenarios in this suite.
 
 | Argument                              | Behaviour                                                                                                                     |
@@ -164,12 +164,11 @@ no import or migration of old run reports in the first version.
 
 Use these logical tables. Final DDL must retain these relationships and field meanings.
 
-| Table             | Key and contents                                                                                                                      |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `batches`         | `batch_id`; suite name and manifest; input fingerprint and snapshot JSON; configuration; created/start/finish times; execution state. |
-| `batch_tasks`     | `(batch_id, task_id)`; explicit task order; scenario; variant; input fingerprint; current scheduling state.                           |
-| `runs`            | `run_id`; batch/task foreign key; attempt number; lifecycle state; dates; metrics; configuration and versions; terminal report JSON.  |
-| `repair_attempts` | `(run_id, attempt_index)`; check name; pass result; source fingerprint; error; recorded command results as JSON.                      |
+| Table         | Key and contents                                                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `batches`     | `batch_id`; suite name and manifest; input fingerprint and snapshot JSON; configuration; created/start/finish times; execution state. |
+| `batch_tasks` | `(batch_id, task_id)`; explicit task order; scenario; variant; input fingerprint; current scheduling state.                           |
+| `runs`        | `run_id`; batch/task foreign key; attempt number; lifecycle state; dates; metrics; configuration and versions; terminal report JSON.  |
 
 Use a unique constraint on `(batch_id, task_id, attempt_number)`. Allocate attempt numbers in a
 transaction. A retry gets a new `run_id`. `runs` initially holds an attempt identity and execution
@@ -200,7 +199,7 @@ These values come from the current run report unless marked as new or derived.
 | Created, started, finished, recorded, recovered dates | Distinguish lifecycle dates, ledger commit time, and recovery time. New fields must not be inferred from unrelated dates. |
 | Run state and error                                   | Ready, failed, cancelled, interrupted, or failed to start. Ready means current automated completion rules passed.         |
 | `setup_seconds`                                       | Measured setup duration. Distinguish a completed phase from partial or unstarted setup.                                   |
-| `agent_seconds`                                       | Measured agent duration. It includes in-pass repair checks.                                                               |
+| `agent_seconds`                                       | Measured agent duration. It includes tool work.                                                                           |
 | `verification_seconds`, exit code                     | Measured final verification and its result. NULL if not available.                                                        |
 | `elapsed_seconds`                                     | Derived from real run creation and finish timestamps. Includes runner overhead. Unknown for an unobserved crash.          |
 | `input_tokens`                                        | Normalized provider input usage. For current Claude records, includes cache reads and writes.                             |
@@ -209,38 +208,13 @@ These values come from the current run report unless marked as new or derived.
 | `output_tokens`                                       | Provider output usage.                                                                                                    |
 | `reasoning_output_tokens`                             | Separate reasoning usage when reported. Do not invent it or add overlapping categories.                                   |
 | `cost_usd`, basis, source, model IDs                  | Saved API estimate and evidence. Not a subscription charge. Missing cost is NULL, not zero.                               |
-| Repair check attempts                                 | Each recorded check and command result. Counts do not establish the number of fixes.                                      |
 | Changed files                                         | Saved paths and derived count. This is not a quality score. Missing source evidence must not imply zero changes.          |
 | Completed turns, invalid event lines, event counts    | Existing diagnostic evidence. Provider event counts are not a portable tool-call metric.                                  |
 | Warnings, agent exit code, final verification         | Preserve failure and partial-result evidence.                                                                             |
 
 Retain evidence completeness and phase state. Do not convert an unstarted or unknown phase into a
 zero duration just because an old report field starts at zero. No visual quality score, browser pass
-result, manual review status, or separate repair token estimate is collected by this feature.
-
-## Concrete example
-
-The following values were read from a real saved report during planning. Numbers are rounded here
-for display. Store the original numeric precision in SQLite.
-
-| Field                                  | Value                                                   |
-| -------------------------------------- | ------------------------------------------------------- |
-| Run ID                                 | `1789577167624-43c79cc4`                                |
-| Task                                   | `invite-member--repair`                                 |
-| Provider / requested model / effort    | `claude` / `claude-sonnet-5` / `high`                   |
-| Created / finished                     | `2026-09-16T16:46:07.624Z` / `2026-09-16T16:51:37.461Z` |
-| State                                  | `ready`                                                 |
-| Setup / agent / final verification     | 57.94 / 241.99 / 13.38 seconds                          |
-| Elapsed                                | 329.837 seconds                                         |
-| Input / cached input / cache writes    | 1,611,243 / 1,549,853 / 61,332 tokens                   |
-| Output / separate reasoning            | 10,759 tokens / not reported                            |
-| API estimate / basis                   | USD 0.6644016 / `provider_reported`                     |
-| Cost model IDs                         | `claude-sonnet-5`, `claude-haiku-4-5-20251001`          |
-| Repair checks / verification exit code | Two passing checks / 0                                  |
-| Changed files                          | `src/app.tsx`                                           |
-
-The source is the report under `runs/1789577167624-43c79cc4/report.json` in the default data
-directory. This example has no suite or batch ID. Those fields must not be fabricated for it.
+result or manual review status is collected by this feature.
 
 ## Implementation boundaries
 
@@ -268,7 +242,7 @@ current artifact set per task and the existing comparison group rule.
 8. Resume uses saved inputs. It starts pending tasks only unless retries are explicitly requested.
 9. Retries get new attempt IDs and preserve all earlier results. Successful tasks are not repeated.
 10. A database write failure prevents new dispatch and reports an unsuccessful command result.
-11. Missing metrics remain NULL. Cache categories and repair time are not counted twice.
+11. Missing metrics remain NULL. Cache categories are not counted twice.
 12. Read-only SQL can retrieve all saved metrics after generated artifacts have been replaced.
 13. Optional TUI/browser inspection has no effect on recording or completion.
 

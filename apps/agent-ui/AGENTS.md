@@ -46,10 +46,9 @@ interactive TUI. Read [README.md](README.md) for the run flow, file structure, a
 - Save failures and partial reports. Stop the owned process group on cancellation.
 - Use task IDs for normal commands. Load optional `task.toml` package settings automatically.
 - Keep task configuration declarative: exact npm packages, matching install permissions, setup
-  profile names, and an optional required repair check. Resolve profiles before replacing old
-  output. Preserve the resolved files, configuration, workspace settings, and setup lockfile. Apply
-  them only to the run copy before agent execution. Keep checks and their evidence under runner
-  ownership.
+  profile names. Resolve profiles before replacing old output. Preserve the resolved files,
+  configuration, workspace settings, and setup lockfile. Apply them only to the run copy before
+  agent execution. Keep verification and its evidence under runner ownership.
 - Keep tests in memory. Do not create files, change the host environment, start child processes, or
   open browsers or editors from tests. Do not call the run, preview, or editor actions in tests.
 - Test observable behavior with independent expected results. Do not test copied logic, display

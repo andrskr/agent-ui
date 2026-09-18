@@ -7,12 +7,6 @@ use std::{
     path::{Component, Path},
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct CheckDefinition {
-    pub commands: Vec<Vec<String>>,
-}
-
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 struct Profile {
@@ -20,7 +14,6 @@ struct Profile {
     dev_dependencies: BTreeMap<String, String>,
     allow_builds: BTreeMap<String, bool>,
     files: Vec<FileCopy>,
-    checks: BTreeMap<String, CheckDefinition>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,7 +31,6 @@ struct FileCopy {
 pub(crate) struct SetupPlan {
     pub task: TaskConfig,
     pub packages: TaskConfig,
-    pub checks: BTreeMap<String, CheckDefinition>,
     pub files: BTreeMap<String, Vec<u8>>,
     pub manifests: BTreeMap<String, String>,
 }
@@ -94,13 +86,6 @@ impl SetupPlan {
             packages.validate()?;
             merge_packages(&mut plan.packages, packages)?;
             plan.manifests.insert(name.clone(), raw);
-            for (name, check) in profile.checks {
-                validate_check(&name, &check)?;
-                ensure!(
-                    plan.checks.insert(name.clone(), check).is_none(),
-                    "Duplicate check '{name}'"
-                );
-            }
             for copy in profile.files {
                 regular_path(root, &copy.from)?;
                 relative(&copy.to)?;
@@ -150,17 +135,6 @@ impl SetupPlan {
                     &mut plan.files,
                 )?;
             }
-        }
-        if let Some(repair) = &task.repair {
-            ensure!(
-                plan.checks.contains_key(&repair.check),
-                "Unknown repair check '{}'",
-                repair.check
-            );
-            ensure!(
-                cfg!(target_os = "macos"),
-                "Repair checks currently require the macOS command sandbox"
-            );
         }
         Ok(plan)
     }
@@ -299,26 +273,6 @@ fn merge<T: PartialEq>(target: &mut BTreeMap<String, T>, key: String, value: T) 
     target.insert(key, value);
     Ok(())
 }
-fn validate_check(name: &str, check: &CheckDefinition) -> Result<()> {
-    ensure!(
-        !name.is_empty()
-            && name
-                .bytes()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'),
-        "Invalid check name"
-    );
-    ensure!(!check.commands.is_empty(), "Check '{name}' has no commands");
-    for command in &check.commands {
-        ensure!(
-            command.len() >= 2
-                && command[0] == "vp"
-                && command.iter().all(|arg| !arg.contains('\0')),
-            "Check commands must use vp and explicit arguments"
-        );
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,27 +323,5 @@ mod tests {
         )
         .unwrap();
         assert_eq!(target.dev_dependencies.get("b").unwrap(), "2.0.0");
-    }
-    #[test]
-    fn checks_require_explicit_commands() {
-        assert!(validate_check("quality", &CheckDefinition { commands: vec![] }).is_err());
-        assert!(
-            validate_check(
-                "quality",
-                &CheckDefinition {
-                    commands: vec![vec!["sh".into(), "-c".into(), "echo pass".into()]]
-                }
-            )
-            .is_err()
-        );
-        assert!(
-            validate_check(
-                "quality",
-                &CheckDefinition {
-                    commands: vec![vec!["vp".into(), "check".into()]]
-                }
-            )
-            .is_ok()
-        );
     }
 }

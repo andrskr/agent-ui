@@ -6,23 +6,18 @@ analytical reports. Later, open the database read-only to answer questions or pr
 ## Run a suite
 
 ```sh
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --dry-run
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model claude-sonnet-5 --record
+vp run agent-ui batch run --suite recent-transactions --provider claude --model claude-sonnet-5 --dry-run
+vp run agent-ui batch run --suite recent-transactions --provider claude --model claude-sonnet-5 --record
 ```
 
-The `ui-evaluation` suite selects Invite member and its three variants. The `project-list` suite
-selects Project list and its three variants. Use `--suite project-list --timeout 1800` for a
-30-minute agent timeout per task. Suite files live in `experiments/suites/`:
+The `recent-transactions` suite selects Recent transactions with baseline and context. Use
+`--timeout 1800` for a 30-minute agent timeout per task. Suite files live in `experiments/suites/`:
 
 ```toml
 schema_version = 1
-scenarios = ["invite-member"]
-variants = ["baseline", "context", "repair"]
+scenarios = ["recent-transactions"]
+variants = ["baseline", "context"]
 ```
-
-The `notification-preferences` suite selects Notification preferences and the same three variants.
-Use `--suite notification-preferences --timeout 1800` to run that scenario with a 30-minute agent
-timeout per task.
 
 Each scenario/variant pair must exist. No wildcard expands the selection. Names, duplicates, empty
 lists, and unknown fields are checked before execution. Without `--record`, a batch has no permanent
@@ -67,20 +62,22 @@ By default, the database is:
 ```
 
 `--data-dir` selects another directory outside the project. `ledger info` reports its path and
-schema version without creating a database. Schema version 2 keeps the four result tables below and
-adds [permanent activity tables](cli-run-activity.md):
+schema version without creating a database. The runner accepts schema 3. Older databases must be
+converted explicitly; opening them does not change them.
 
-| Table             | One row represents                              | Key                       |
-| ----------------- | ----------------------------------------------- | ------------------------- |
-| `batches`         | A saved suite selection and configuration       | `batch_id`                |
-| `batch_tasks`     | A selected task and its latest scheduling state | `batch_id`, `task_id`     |
-| `runs`            | An execution attempt and its recorded result    | `run_id`                  |
-| `repair_attempts` | A recorded in-pass repair check                 | `run_id`, `attempt_index` |
+Schema version 3 has the three result tables below and
+[permanent activity tables](cli-run-activity.md):
+
+| Table         | One row represents                              | Key                   |
+| ------------- | ----------------------------------------------- | --------------------- |
+| `batches`     | A saved suite selection and configuration       | `batch_id`            |
+| `batch_tasks` | A selected task and its latest scheduling state | `batch_id`, `task_id` |
+| `runs`        | An execution attempt and its recorded result    | `run_id`              |
 
 The exact definitions are in [ledger.sql](../apps/agent-ui/src/ledger.sql). Foreign keys link the
-tables. `(batch_id, task_id, attempt_number)` is unique. Completed result rows and repair evidence
-cannot be updated or deleted through normal SQL mutations. Pending scheduling state can change.
-There is no import of earlier report files.
+tables. `(batch_id, task_id, attempt_number)` is unique. Completed result rows cannot be updated or
+deleted through normal SQL mutations. Pending scheduling state can change. There is no import of
+earlier report files.
 
 `batches.snapshot_json` contains the suite manifest, task input bytes, starter source, and resolved
 setup plans. Its fingerprint is in `input_fingerprint`. `settings_json` contains the provider,
@@ -91,7 +88,7 @@ metrics-only file.
 `runs.report_json` preserves the complete terminal report. It includes warnings, event counts, input
 hashes, before/after source inventories, changed paths, task settings, and cost evidence.
 `completion_json` is the recording envelope used to detect duplicate or conflicting delivery.
-Historical artifact paths in these documents can refer to files that no longer exist. Schema 2
+Historical artifact paths in these documents can refer to files that no longer exist. The ledger
 records activity and raw command output separately. See [run activity](cli-run-activity.md) for
 capture states, recovery, byte output, and request-level usage queries.
 
@@ -113,14 +110,12 @@ capture states, recovery, byte output, and request-level usage queries.
 | `output_tokens`, `reasoning_output_tokens`                  | Output usage and reported reasoning subset. Missing reasoning usage is NULL.                                                       |
 | `cost_usd`, `cost_basis`, `cost_source`, `cost_models_json` | Saved API price estimate and provenance. It is not a subscription charge.                                                          |
 | `agent_exit_code`, `verification_exit_code`                 | Observed command exit codes. NULL if unavailable.                                                                                  |
-| `repair_check_count`                                        | Number of recorded checks, not number of fixes.                                                                                    |
 | `changed_file_count`                                        | Count from final source evidence. NULL if that evidence is missing.                                                                |
 | `completed_turns`, `invalid_event_lines`                    | Provider event diagnostics. They do not measure visual quality.                                                                    |
 | Provider, model, effort, timeout and version columns        | Exact requested settings and observed tool versions. `runner_build` is optional and comes from the build-time `AGENT_UI_BUILD_ID`. |
 
 Never replace missing measurements with zero. An interrupted run can retain usage and cost measured
-before interruption. Read its state and cost note before treating those values as complete. Repair
-check durations are already inside agent duration. Do not add them twice.
+before interruption. Read its state and cost note before treating those values as complete.
 
 `ready` means the existing automated run checks passed. It does not certify visual quality or imply
 a manual review. No manual review fields are recorded.

@@ -1094,7 +1094,7 @@ fn sidebar_typography_separates_group_task_metadata_and_selection() {
         run: None,
         cleanup_pending: false,
     }];
-    for name in ["baseline", "context", "repair"] {
+    for name in ["baseline", "context"] {
         let id = format!("smoke--{name}");
         items.push(TaskView {
             id: id.clone(),
@@ -1128,7 +1128,7 @@ fn sidebar_typography_separates_group_task_metadata_and_selection() {
     assert_ne!(buffer[group].bg, buffer[task].bg);
     assert_ne!(buffer[selected].bg, buffer[task].bg);
     assert_ne!(buffer[date].fg, buffer[task].fg);
-    assert_eq!(buffer[(task.0 - 3, task.1)].symbol(), "├");
+    assert_eq!(buffer[(task.0 - 3, task.1)].symbol(), "└");
     let row: String = (task.0..35).map(|x| buffer[(x, task.1)].symbol()).collect();
     assert!(row.contains("Ready"));
     assert_ne!(buffer[(selected.0 - 3, selected.1)].bg, buffer[selected].bg);

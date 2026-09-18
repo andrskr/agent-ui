@@ -29,7 +29,7 @@ fn invalid_names_cannot_be_task_ids() {
         "--baseline",
         "smoke--",
         "smoke---baseline",
-        "smoke--context--repair",
+        "smoke--context--extra",
         "Smoke--baseline",
         "smoke--extra_context",
         "smoke--baseline-",

@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 UNAVAILABLE = "Unavailable"
-VARIANTS = {"baseline": "Baseline", "context": "Context", "repair": "Context + repair"}
+VARIANTS = {"baseline": "Baseline", "context": "Context"}
 
 
 def number(value):
@@ -44,8 +44,8 @@ def open_ledger(path):
 
 
 def check_schema(db):
-    if db.execute("PRAGMA user_version").fetchone()[0] != 2:
-        raise ValueError("This report generator requires Agent UI ledger schema 2.")
+    if db.execute("PRAGMA user_version").fetchone()[0] != 3:
+        raise ValueError("This report generator requires Agent UI ledger schema 3.")
 
 
 def batches(db):
@@ -138,14 +138,8 @@ def load_report(db, batch_id, scenario=None, attempt="all"):
                 run["label"] += f" · Attempt {run['attempt_number']}"
             if run["run_id"]:
                 activity(db, run)
-                checks = db.execute(
-                    "SELECT count(*),sum(passed) FROM repair_attempts WHERE run_id=?", (run["run_id"],)
-                ).fetchone()
-                run["repair_passed"] = checks[1] if checks[0] else None
                 report = decode(run.get("report_json"), {})
                 run["cost_note"] = report.get("cost_note")
-                config = report.get("task_config")
-                run["repair_required"] = bool(config.get("repair")) if config is not None else None
             else:
                 run["capture_state"] = "not_started"
             for key in ("setup_seconds", "agent_seconds", "verification_seconds", "elapsed_seconds",
@@ -336,15 +330,6 @@ def render_report(model, template):
     rows.append(("Total tool calls", values("tool_calls")))
     article.append(table(runs, "Recorded tool activity", rows,
                          "Calls by tool · Zero means no recorded calls · Partial captures show observed counts only"))
-    repairs = []
-    for r in runs:
-        count = r.get("repair_check_count")
-        if number(count) and count > 0:
-            repairs.append(f"{fmt(r.get('repair_passed'))} / {fmt(count)} passed")
-        elif count == 0 and r.get("repair_required") is False:
-            repairs.append("Not required")
-        else:
-            repairs.append("No recorded check" if count == 0 else UNAVAILABLE)
     rows = [("Run state", [r["state"] for r in runs]), ("Observed model requests", values("requests")),
             ("Tool results with errors", values("tool_errors")), ("Permission denials", values("denials")),
             ("Saved activity events", values("events")), ("Raw log size (bytes)", values("log_bytes")),
@@ -352,7 +337,7 @@ def render_report(model, template):
             ("Invalid event lines", values("invalid_event_lines")),
             ("Automated verification", ["Passed" if r["state"] == "ready" else
                                         "Failed" if r.get("verification_exit_code") not in (None, 0) else "Not confirmed" for r in runs]),
-            ("In-pass repair checks", repairs), ("Changed source files", values("changed_file_count"))]
+            ("Changed source files", values("changed_file_count"))]
     article.append(table(runs, "Activity and checks", rows,
                          "Permission denials can also appear as tool errors. Do not add these counts."))
     article.append(table(runs, "Token use", [(label, values(key)) for label, key in (
@@ -364,7 +349,7 @@ def render_report(model, template):
     section.append(node("h3", "Measurement notes"))
     texts = [f"Attempt selection: {model['selection']}. {model['excluded']} other attempts are excluded from this report.",
              "These are individual observations. Concurrent tasks can affect setup and verification time.",
-             "Agent time includes tool work and in-pass repair checks.",
+             "Agent time includes tool work.",
              "Verification time covers command execution. Other time is the remaining elapsed time.",
              "Automated checks do not measure visual quality. No visual quality score was recorded.",
              "Cost is a saved API price estimate, not a subscription charge.",

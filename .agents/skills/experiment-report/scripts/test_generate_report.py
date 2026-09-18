@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 import unittest
+import xml.etree.ElementTree as ET
 
 import generate_report as report
 
@@ -28,7 +29,6 @@ class ReportTests(unittest.TestCase):
         self.db.row_factory = sqlite3.Row
         for filename in ("ledger.sql", "ledger_activity.sql"):
             self.db.executescript((ROOT / "apps/agent-ui/src" / filename).read_text())
-        self.db.execute("PRAGMA user_version=2")
         self.snapshot = {"contract": "test", "tasks": [{"id": "form--baseline", "inputs": {
             "task.md": {"bytes": list(b'Build the saved form. <script>alert(1)</script> @@TITLE@@')}
         }}]}
@@ -50,8 +50,8 @@ class ReportTests(unittest.TestCase):
                       effort_requested="high", timeout_seconds=900, setup_seconds=0.25,
                       agent_seconds=1.25, verification_seconds=0.25, elapsed_seconds=2,
                       input_tokens=1000, cached_input_tokens=600, cache_write_input_tokens=300,
-                      output_tokens=25, cost_usd=0.01, repair_check_count=0,
-                      report_json=json.dumps({"task_config": {"repair": None}}))
+                      output_tokens=25, cost_usd=0.01,
+                      report_json=json.dumps({"task_config": {}}))
         values.update(extra)
         self.db.execute(f"INSERT INTO runs ({','.join(values)}) VALUES ({','.join('?' for _ in values)})", tuple(values.values()))
 
@@ -71,6 +71,33 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(result["uncached_input_tokens"], 100)
         self.assertEqual(result["other_seconds"], 0.25)
         self.assertEqual(result["input_tokens"], 1000)
+
+    def test_two_variants_keep_separate_metrics_in_charts_and_tables(self):
+        self.db.execute("INSERT INTO batch_tasks VALUES (?,?,?,?,?,?,?)",
+                        ("batch", "form--context", 1, "form", "context", "fingerprint", "ready"))
+        self.run_row()
+        self.run_row("context-run", task_id="form--context", input_tokens=2000,
+                     output_tokens=50, cost_usd=0.02)
+        model = self.load()
+        self.assertEqual([(r["label"], r["input_tokens"], r["output_tokens"], r["cost_usd"])
+                          for r in model["runs"]],
+                         [("Baseline", 1000, 25, 0.01), ("Context", 2000, 50, 0.02)])
+        html = report.render_report(model, (report.ASSETS / "report.html").read_text())
+        article = ET.fromstring(html[html.index("<article"):html.index("</article>") + len("</article>")])
+        charts = [s for s in article.iter("section") if s.get("aria-labelledby")]
+        self.assertEqual(len(charts), 4)
+        for chart in charts:
+            labels = [list(n)[0].text for n in chart.iter("div") if n.get("class") == "ir-label"]
+            self.assertEqual(labels, ["Baseline", "Context"])
+        tables = list(article.iter("table"))
+        self.assertTrue(tables)
+        for table in tables:
+            self.assertEqual([n.text for n in table.findall("./thead/tr/th")],
+                             ["Metric", "Baseline", "Context"])
+            self.assertTrue(all(len(row.findall("td")) == 2 for row in table.findall("./tbody/tr")))
+        output_row = next(row for table in tables for row in table.findall("./tbody/tr")
+                          if row.find("th").text == "Output tokens")
+        self.assertEqual([n.text for n in output_row.findall("td")], ["25", "50"])
 
     def test_missing_capture_is_not_zero_and_known_zero_is_visible(self):
         self.run_row(output_tokens=0, input_tokens=None)

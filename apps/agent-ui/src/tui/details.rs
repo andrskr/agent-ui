@@ -95,31 +95,6 @@ pub(super) fn overview_lines(run: &Report, note: &str, width: u16) -> Vec<Line<'
         }
         lines.push(Line::default());
     }
-    if let Some(repair) = run
-        .task_config
-        .as_ref()
-        .and_then(|config| config.repair.as_ref())
-    {
-        let status = run.repair_attempts.last().map_or("Not run", |attempt| {
-            if attempt.passed && !run.state.active() && attempt.source != run.after {
-                "Source changed"
-            } else if attempt.passed {
-                "Passed"
-            } else {
-                "Failed"
-            }
-        });
-        lines.push(pair(
-            "Required repair",
-            &format!(
-                "{} · {status} · {} checks",
-                repair.check,
-                run.repair_attempts.len()
-            ),
-            width,
-        ));
-        lines.push(Line::default());
-    }
     let usage = run.usage.as_ref();
     lines.push(pair(
         "Estimated API cost (USD)",
@@ -339,19 +314,13 @@ fn setup_lines(
                 safe_text(value.lines().next().unwrap_or("Not recorded"))
             )));
         }
-        if let Some(config) = &run.task_config {
-            if !config.setup.profiles.is_empty() {
-                lines.push(Line::from(format!(
-                    "Setup profiles: {}",
-                    config.setup.profiles.join(", ")
-                )));
-            }
-            if let Some(repair) = &config.repair {
-                lines.push(Line::from(format!(
-                    "Required repair check: {}",
-                    repair.check
-                )));
-            }
+        if let Some(config) = &run.task_config
+            && !config.setup.profiles.is_empty()
+        {
+            lines.push(Line::from(format!(
+                "Setup profiles: {}",
+                config.setup.profiles.join(", ")
+            )));
         }
         packages(&mut lines, run.task_config.as_ref(), width);
         section(&mut lines, width);

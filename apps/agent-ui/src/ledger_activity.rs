@@ -114,7 +114,6 @@ impl Ledger {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
         Self::check_schema(&db)?;
-        let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         ensure!(
             db.query_row(
                 "SELECT EXISTS(SELECT 1 FROM runs WHERE run_id=?1)",
@@ -123,11 +122,6 @@ impl Ledger {
             )?,
             "Run does not exist"
         );
-        if version == 1 {
-            return Ok(
-                json!({"run_id":id,"capture":{"state":"not_recorded"},"events":[],"next_after":null}),
-            );
-        }
         let capture: Option<Value> = db.query_row("SELECT state,capture_version,last_sequence,log_bytes,error FROM run_capture WHERE run_id=?1",[id],|r|Ok(json!({"state":r.get::<_,String>(0)?,"version":r.get::<_,u64>(1)?,"last_sequence":r.get::<_,u64>(2)?,"log_bytes":r.get::<_,u64>(3)?,"error":r.get::<_,Option<String>>(4)?}))).optional()?;
         let rows = db.prepare("SELECT sequence,observed_at_ms,elapsed_ms,kind,phase,command_id,message_id,tool_call_id,parent_tool_call_id,provider_at_ms,details_json FROM run_events WHERE run_id=?1 AND sequence>?2 ORDER BY sequence LIMIT ?3")?
             .query_map(params![id,after,limit+1], |r| Ok(json!({

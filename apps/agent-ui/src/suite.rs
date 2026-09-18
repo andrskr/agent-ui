@@ -157,19 +157,12 @@ impl Snapshot {
                 serde_json::to_value(saved_config)? == serde_json::to_value(&task.plan.task)?,
                 "Task configuration changed while taking the snapshot"
             );
-            if let Some(repair) = &task.plan.task.repair {
-                ensure!(
-                    cfg!(target_os = "macos") && task.plan.checks.contains_key(&repair.check),
-                    "Saved repair setup is unavailable on this machine"
-                );
-            } else {
-                ensure!(
-                    manifest["scripts"]["verify"]
-                        .as_str()
-                        .is_some_and(|s| !s.trim().is_empty()),
-                    "Starter must define a verify script"
-                );
-            }
+            ensure!(
+                manifest["scripts"]["verify"]
+                    .as_str()
+                    .is_some_and(|s| !s.trim().is_empty()),
+                "Starter must define a verify script"
+            );
             for path in task.plan.files.keys() {
                 crate::profile::relative(path)?;
             }
@@ -269,19 +262,11 @@ pub(crate) mod tests {
     use super::*;
     #[test]
     fn selection_is_complete_ordered_and_strict() {
-        let text =
-            "schema_version = 1\nscenarios = ['a','b']\nvariants = ['baseline','context','repair']";
+        let text = "schema_version = 1\nscenarios = ['a','b']\nvariants = ['baseline','context']";
         let suite = Suite::parse(text).unwrap();
         assert_eq!(
             suite.task_ids().unwrap(),
-            [
-                "a--baseline",
-                "a--context",
-                "a--repair",
-                "b--baseline",
-                "b--context",
-                "b--repair"
-            ]
+            ["a--baseline", "a--context", "b--baseline", "b--context"]
         );
         for bad in [
             text.replace("['a','b']", "[]"),
@@ -295,9 +280,9 @@ pub(crate) mod tests {
         let suite = Suite {
             schema_version: 1,
             scenarios: (1..=12).map(|i| format!("scenario-{i}")).collect(),
-            variants: vec!["baseline".into(), "context".into(), "repair".into()],
+            variants: vec!["baseline".into(), "context".into()],
         };
-        assert_eq!(suite.task_ids().unwrap().len(), 36);
+        assert_eq!(suite.task_ids().unwrap().len(), 24);
     }
     pub(crate) fn fixture() -> Snapshot {
         Snapshot {
@@ -364,7 +349,7 @@ pub(crate) mod tests {
         changed.tasks[0].inputs.insert(
             "task.toml".into(),
             InputFile {
-                bytes: b"[repair]\ncheck='quality'".to_vec(),
+                bytes: b"[dependencies]\nzod='4.1.0'".to_vec(),
                 mode: 0o644,
             },
         );

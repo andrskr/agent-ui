@@ -103,34 +103,3 @@ fn finished_runs_cannot_restart_or_change_their_result() {
     assert_eq!(report.error.as_deref(), Some("Setup failed"));
     assert_eq!(report.finished_at_ms, finished);
 }
-
-#[test]
-fn repair_cannot_be_ready_without_a_current_passing_attempt() {
-    let mut report = run();
-    report.task_config =
-        Some(agent_ui::task::TaskConfig::parse("[repair]\ncheck = 'quality'").unwrap());
-    report.after.insert("src/app.tsx".into(), "final".into());
-    complete_agent(&mut report);
-    report.begin_phase(Phase::Verification).unwrap();
-    report.verification = Some(Check {
-        exit_code: Some(0),
-        seconds: 1.0,
-    });
-    assert!(report.finish(None, false).is_err());
-    report.repair_attempts.push(agent_ui::repair::Attempt {
-        check: "quality".into(),
-        source: report.after.clone(),
-        passed: false,
-        commands: vec![],
-        error: None,
-    });
-    assert!(report.finish(None, false).is_err());
-    report.repair_attempts[0].passed = true;
-    report.repair_attempts[0]
-        .source
-        .insert("src/app.tsx".into(), "old".into());
-    assert!(report.finish(None, false).is_err());
-    report.repair_attempts[0].source = report.after.clone();
-    report.finish(None, false).unwrap();
-    assert_eq!(report.state, State::Ready);
-}

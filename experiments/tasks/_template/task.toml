@@ -11,11 +11,3 @@
 # Allow scripts only after reviewing this package version.
 # [allow-builds]
 # "@astryxdesign/cli@0.6.2" = true
-
-# Copy reusable tools and configuration into this task's workspace.
-# [setup]
-# profiles = ["root-quality"]
-
-# Require a passing named check within the same agent session.
-# [repair]
-# check = "quality"

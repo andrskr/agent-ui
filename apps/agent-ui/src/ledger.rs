@@ -2,7 +2,7 @@ use crate::{
     report::{Report, now},
     settings::Settings,
     storage::{Store, private_dir, valid_run_id, write_json},
-    suite::{Snapshot, fingerprint},
+    suite::Snapshot,
     task::TaskId,
 };
 use anyhow::{Context, Result, ensure};
@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-const SCHEMA: i64 = 2;
+const SCHEMA: i64 = 3;
 const APPLICATION_ID: i64 = 1096109132;
 
 pub(crate) struct Ledger {
@@ -118,22 +118,17 @@ impl Ledger {
             ensure!(count == 0, "Refusing to initialize an unrelated database");
             let tx = db.transaction()?;
             tx.execute_batch(include_str!("ledger.sql"))?;
-            tx.commit()?;
-        }
-        Self::check_schema(&db)?;
-        let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version == 1 {
-            let tx = db.transaction()?;
             tx.execute_batch(include_str!("ledger_activity.sql"))?;
             tx.commit()?;
         }
+        Self::check_schema(&db)?;
         Ok(Self { db })
     }
     pub(crate) fn check_schema(db: &Connection) -> Result<()> {
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         let application: i64 = db.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         ensure!(
-            (1..=SCHEMA).contains(&version) && application == APPLICATION_ID,
+            version == SCHEMA && application == APPLICATION_ID,
             "Unsupported ledger schema or database identity (version {version})"
         );
         Ok(())
@@ -275,20 +270,6 @@ impl Ledger {
                 serde_json::to_value(r.state)? == c.state,
                 "Result state is inconsistent"
             );
-            for (index, attempt) in r.repair_attempts.iter().enumerate() {
-                tx.execute(
-                    "INSERT INTO repair_attempts VALUES(?1,?2,?3,?4,?5,?6,?7)",
-                    params![
-                        c.run_id,
-                        index,
-                        attempt.check,
-                        attempt.passed,
-                        fingerprint(&attempt.source)?,
-                        serde_json::to_string(&attempt.commands)?,
-                        attempt.error
-                    ],
-                )?;
-            }
             let usage = r.usage.as_ref();
             let cost_basis = r
                 .cost_basis
@@ -297,10 +278,10 @@ impl Ledger {
                     serde_json::to_value(basis).map(|v| v.as_str().unwrap_or_default().to_string())
                 })
                 .transpose()?;
-            tx.execute("UPDATE runs SET created_at_ms=:created,finished_at_ms=:finished,provider_version=:provider_version,runner_version=:runner_version,runner_build=:runner_build,node_version=:node,vp_version=:vp,setup_started_at_ms=:setup_start,setup_finished_at_ms=:setup_finish,agent_started_at_ms=:agent_start,verification_started_at_ms=:verify_start,setup_seconds=:setup,agent_seconds=:agent,verification_seconds=:verify,elapsed_seconds=:elapsed,agent_exit_code=:agent_exit,verification_exit_code=:verify_exit,input_tokens=:input,cached_input_tokens=:cached,cache_write_input_tokens=:cache_write,output_tokens=:output,reasoning_output_tokens=:reasoning,cost_usd=:cost,cost_basis=:basis,cost_source=:cost_source,cost_models_json=:models,repair_check_count=:repairs,changed_file_count=:files,completed_turns=:turns,invalid_event_lines=:invalid,report_json=:report WHERE run_id=:id",
+            tx.execute("UPDATE runs SET created_at_ms=:created,finished_at_ms=:finished,provider_version=:provider_version,runner_version=:runner_version,runner_build=:runner_build,node_version=:node,vp_version=:vp,setup_started_at_ms=:setup_start,setup_finished_at_ms=:setup_finish,agent_started_at_ms=:agent_start,verification_started_at_ms=:verify_start,setup_seconds=:setup,agent_seconds=:agent,verification_seconds=:verify,elapsed_seconds=:elapsed,agent_exit_code=:agent_exit,verification_exit_code=:verify_exit,input_tokens=:input,cached_input_tokens=:cached,cache_write_input_tokens=:cache_write,output_tokens=:output,reasoning_output_tokens=:reasoning,cost_usd=:cost,cost_basis=:basis,cost_source=:cost_source,cost_models_json=:models,changed_file_count=:files,completed_turns=:turns,invalid_event_lines=:invalid,report_json=:report WHERE run_id=:id",
                 named_params! {":id":c.run_id,":created":r.created_at_ms,":finished":r.finished_at_ms,":provider_version":r.provider_version,":runner_version":r.runner_version,":runner_build":option_env!("AGENT_UI_BUILD_ID"),":node":r.node_version,":vp":r.vp_version,":setup_start":r.setup_started_at_ms,":setup_finish":r.setup_finished_at_ms,":agent_start":r.agent_started_at_ms,":verify_start":r.verification_started_at_ms,
                     ":setup":r.setup_started_at_ms.map(|_|r.setup_seconds),":agent":r.agent_seconds,":verify":r.verification.as_ref().map(|v|v.seconds),":elapsed":r.finished_at_ms.and_then(|end|end.checked_sub(r.created_at_ms)).map(|ms|ms as f64/1000.0),":agent_exit":r.agent_exit_code,":verify_exit":r.verification.as_ref().and_then(|v|v.exit_code),
-                    ":input":usage.map(|u|u.input_tokens),":cached":usage.map(|u|u.cached_input_tokens),":cache_write":usage.and_then(|u|u.cache_write_input_tokens),":output":usage.map(|u|u.output_tokens),":reasoning":usage.and_then(|u|u.reasoning_output_tokens),":cost":r.cost_usd,":basis":cost_basis,":cost_source":r.cost_source,":models":serde_json::to_string(&r.cost_models)?,":repairs":r.repair_attempts.len(),":files":(!r.after.is_empty()).then_some(r.changed_files.len()),":turns":r.completed_turns,":invalid":r.invalid_event_lines,":report":serde_json::to_string(r)? })?;
+                    ":input":usage.map(|u|u.input_tokens),":cached":usage.map(|u|u.cached_input_tokens),":cache_write":usage.and_then(|u|u.cache_write_input_tokens),":output":usage.map(|u|u.output_tokens),":reasoning":usage.and_then(|u|u.reasoning_output_tokens),":cost":r.cost_usd,":basis":cost_basis,":cost_source":r.cost_source,":models":serde_json::to_string(&r.cost_models)?,":files":(!r.after.is_empty()).then_some(r.changed_files.len()),":turns":r.completed_turns,":invalid":r.invalid_event_lines,":report":serde_json::to_string(r)? })?;
         } else {
             ensure!(
                 matches!(c.state.as_str(), "failed_to_start" | "interrupted"),
@@ -578,9 +559,11 @@ mod tests {
         assert!(valid);
     }
     #[test]
-    fn schema_upgrade_keeps_existing_results_without_inventing_activity() {
+    fn opening_current_schema_keeps_existing_results_without_inventing_activity() {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(include_str!("ledger.sql")).unwrap();
+        db.execute_batch(include_str!("ledger_activity.sql"))
+            .unwrap();
         db.execute("INSERT INTO batches VALUES('old','suite','manifest','hash','{}','{}',1,1000,NULL,NULL,NULL,'completed')",[]).unwrap();
         let ledger = Ledger::initialize(db, false).unwrap();
         assert_eq!(
@@ -588,7 +571,7 @@ mod tests {
                 .db
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            2
+            3
         );
         assert_eq!(
             ledger
@@ -652,34 +635,15 @@ mod tests {
         r.cost_usd = Some(0.0123456);
         r.after.insert("file".into(), "hash".into());
         r.changed_files.push("file".into());
-        r.repair_attempts.push(crate::repair::Attempt {
-            check: "quality".into(),
-            source: r.after.clone(),
-            passed: false,
-            commands: vec![],
-            error: Some("Check failed".into()),
-        });
         let c = Completion::report(r).unwrap();
         l.db.execute_batch("CREATE TRIGGER deny_result BEFORE UPDATE ON runs BEGIN SELECT RAISE(ABORT,'Disk failure fixture'); END;").unwrap();
         assert!(l.complete(&c).is_err());
         assert_eq!(l.summary("batch").unwrap().recorded, 0);
-        assert_eq!(
-            l.db.query_row("SELECT count(*) FROM repair_attempts", [], |r| r
-                .get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
         l.db.execute_batch("DROP TRIGGER deny_result;").unwrap();
         l.complete(&c).unwrap();
         l.complete(&c).unwrap();
         let row:(u64,u64,u64,u64,f64,f64)=l.db.query_row("SELECT input_tokens,cached_input_tokens,cache_write_input_tokens,output_tokens,cost_usd,elapsed_seconds FROM runs WHERE run_id='measured'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).unwrap();
         assert_eq!(row, (1000, 700, 200, 25, 0.0123456, 4.01));
-        assert_eq!(
-            l.db.query_row("SELECT count(*) FROM repair_attempts", [], |r| r
-                .get::<_, i64>(0))
-                .unwrap(),
-            1
-        );
         l.create_batch(
             "second-batch",
             &crate::suite::tests::fixture(),

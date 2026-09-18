@@ -1,4 +1,4 @@
-<!-- Copy this folder to <group>--<variant>. Replace this comment with the scenario objective and required behavior. Keep the same prompt in all three variants. -->
+<!-- Copy this folder to <group>--<variant>. Replace this comment with the scenario objective and required behavior. Keep the same prompt in both variants. -->
 
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.

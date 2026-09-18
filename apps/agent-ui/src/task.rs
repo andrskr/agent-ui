@@ -50,7 +50,6 @@ pub fn comparison_group<'a>(reference: &'a str, other: &str) -> Result<&'a str> 
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct TaskConfig {
     pub setup: SetupConfig,
-    pub repair: Option<RepairConfig>,
     pub dependencies: BTreeMap<String, String>,
     pub dev_dependencies: BTreeMap<String, String>,
     pub allow_builds: BTreeMap<String, bool>,
@@ -60,12 +59,6 @@ pub struct TaskConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct SetupConfig {
     pub profiles: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct RepairConfig {
-    pub check: String,
 }
 
 impl TaskConfig {
@@ -83,9 +76,6 @@ impl TaskConfig {
                 valid_part(name) && profiles.insert(name),
                 "Invalid or duplicate setup profile '{name}'"
             );
-        }
-        if let Some(repair) = &config.repair {
-            ensure!(valid_part(&repair.check), "Invalid repair check name");
         }
         for (name, version) in config.dependencies.iter().chain(&config.dev_dependencies) {
             let parts: Vec<_> = name.strip_prefix('@').unwrap_or(name).split('/').collect();
