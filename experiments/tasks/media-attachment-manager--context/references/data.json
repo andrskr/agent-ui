@@ -1,0 +1,25 @@
+{
+  "attachments": [
+    {
+      "id": "MEDIA-1",
+      "name": "workspace-layout.png",
+      "file": "workspace-layout.png",
+      "sizeBytes": 1716,
+      "status": "uploaded"
+    },
+    {
+      "id": "MEDIA-2",
+      "name": "project-layout.png",
+      "file": "project-layout.png",
+      "sizeBytes": 1715,
+      "status": "uploaded"
+    },
+    {
+      "id": "MEDIA-3",
+      "name": "review-layout.png",
+      "file": "review-layout.png",
+      "sizeBytes": 1716,
+      "status": "failed"
+    }
+  ]
+}

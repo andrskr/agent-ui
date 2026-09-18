@@ -1,0 +1,12 @@
+[dev-dependencies]
+"@astryxdesign/cli" = "0.5.4"
+"gpt-tokenizer" = "3.4.0"
+
+[allow-builds]
+"@astryxdesign/cli@0.5.4" = true
+
+[setup]
+profiles = ["root-quality"]
+
+[repair]
+check = "quality"

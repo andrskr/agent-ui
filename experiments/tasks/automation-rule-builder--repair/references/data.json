@@ -1,0 +1,83 @@
+{
+  "statuses": ["Open", "In progress", "Waiting", "Resolved"],
+  "priorities": ["Low", "Medium", "High", "Urgent"],
+  "owners": ["Alex Morgan", "Sam Chen", "Jordan Lee"],
+  "initialRule": {
+    "name": "Route urgent open tickets",
+    "match": "all",
+    "conditions": [
+      {
+        "field": "status",
+        "operator": "is",
+        "value": "Open"
+      },
+      {
+        "field": "priority",
+        "operator": "is",
+        "value": "Urgent"
+      }
+    ],
+    "action": {
+      "type": "assign",
+      "target": "Alex Morgan"
+    }
+  },
+  "tickets": [
+    {
+      "id": "TKT-201",
+      "subject": "Invoice export fails",
+      "status": "Open",
+      "priority": "Urgent",
+      "ageInDays": 3
+    },
+    {
+      "id": "TKT-202",
+      "subject": "Cannot accept an invitation",
+      "status": "Open",
+      "priority": "High",
+      "ageInDays": 0
+    },
+    {
+      "id": "TKT-203",
+      "subject": "Invoice total is incorrect",
+      "status": "In progress",
+      "priority": "Urgent",
+      "ageInDays": 5
+    },
+    {
+      "id": "TKT-204",
+      "subject": "Project search is slow",
+      "status": "Waiting",
+      "priority": "Medium",
+      "ageInDays": 8
+    },
+    {
+      "id": "TKT-205",
+      "subject": "Update billing contact",
+      "status": "Resolved",
+      "priority": "Low",
+      "ageInDays": 12
+    },
+    {
+      "id": "TKT-206",
+      "subject": "Attachment upload stops",
+      "status": "Open",
+      "priority": "Urgent",
+      "ageInDays": 1
+    },
+    {
+      "id": "TKT-207",
+      "subject": "Missing weekly summary",
+      "status": "Waiting",
+      "priority": "High",
+      "ageInDays": 4
+    },
+    {
+      "id": "TKT-208",
+      "subject": "Rename a workspace",
+      "status": "In progress",
+      "priority": "Low",
+      "ageInDays": 2
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "initialState": {
+    "workspace": "Northstar",
+    "section": "Overview",
+    "projectId": "website",
+    "sidebarVisible": true
+  },
+  "sections": ["Overview", "Projects", "Activity"],
+  "projects": [
+    {
+      "id": "website",
+      "name": "Website refresh"
+    },
+    {
+      "id": "help-center",
+      "name": "Help center refresh"
+    },
+    {
+      "id": "onboarding",
+      "name": "Mobile onboarding"
+    }
+  ],
+  "commands": [
+    {
+      "id": "overview",
+      "group": "Navigation",
+      "label": "Go to Overview",
+      "keywords": ["home", "dashboard"],
+      "action": "navigate",
+      "section": "Overview"
+    },
+    {
+      "id": "projects",
+      "group": "Navigation",
+      "label": "Go to Projects",
+      "keywords": ["work", "list"],
+      "action": "navigate",
+      "section": "Projects"
+    },
+    {
+      "id": "activity",
+      "group": "Navigation",
+      "label": "Go to Activity",
+      "keywords": ["updates", "history"],
+      "action": "navigate",
+      "section": "Activity"
+    },
+    {
+      "id": "switch-project",
+      "group": "Projects",
+      "label": "Switch project",
+      "keywords": ["choose", "change", "workspace"],
+      "action": "switch-project"
+    },
+    {
+      "id": "toggle-sidebar",
+      "group": "Workspace",
+      "label": "Hide sidebar",
+      "keywords": ["navigation", "menu", "show", "hide"],
+      "action": "toggle-sidebar"
+    }
+  ]
+}

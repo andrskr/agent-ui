@@ -29,19 +29,39 @@ effective value.
 
 ## Run and record
 
+Before a new model run, read the [experiment setup rules](../../../experiments/AGENTS.md). When the
+user asks to prepare a new scenario, use their **New scenario standard**. Each repair task must
+contain its own copy of the repair instructions. The reporting skill is not sent to the model. Use
+the [scenario index](../../../experiments/SCENARIOS.md) to find prepared prompts, exact suite names,
+and scenario timeout limits. Read only the selected scenario's inputs.
+
+Check the selected inputs before execution:
+
+- Confirm the selected scenario and variants. For a full scenario, expect baseline, context, and
+  repair with the same prompt and success criteria. Honor an explicit request for fewer variants.
+- Check the context guidance, required packages, and repair configuration. For a new scenario,
+  confirm that repair runs lint auto-fix, source formatting, and then the recorded repair check.
+  Existing scenarios keep their saved instructions unless the user asks to update them. Do not
+  silently replace an older repair workflow when rerunning a scenario.
+- Resolve the provider, exact model ID, effort choice, and agent timeout. Use the user's settings or
+  the established settings for the selected scenario. For a new scenario without a specified
+  timeout, use `--timeout 1800` as the starting limit. Show the selected settings before execution.
+- Run `vp run agent-ui tasks --check`. Inspect the dry-run plan for the exact selection and
+  settings. Use the same arguments for the recorded run, replacing `--dry-run` with `--record`.
+
 Discover the current CLI with `vp run agent-ui batch run --help`. Read `docs/cli-ledger.md` if the
 run, resume, or storage behavior is unclear. The normal commands are:
 
 ```sh
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model MODEL_ID --dry-run
-vp run agent-ui batch run --suite ui-evaluation --provider claude --model MODEL_ID --record
+vp run agent-ui batch run --suite SUITE --provider claude --model MODEL_ID --timeout TIMEOUT_SECONDS --dry-run
+vp run agent-ui batch run --suite SUITE --provider claude --model MODEL_ID --timeout TIMEOUT_SECONDS --record
 ```
 
-Replace `MODEL_ID` and the suite with the selected values. Inspect the dry-run plan before starting
-the recorded command. A suite runs all its listed scenario/variant pairs. If no existing suite
-matches the request, resolve that selection before starting; do not run extra scenarios or modify a
-shared suite silently. Run replacement changes current generated artifacts. It does not erase
-historical ledger data.
+Replace `MODEL_ID`, `SUITE`, and `TIMEOUT_SECONDS` with the selected values. Add `--effort` when
+requested. Inspect the dry-run plan before starting the recorded command. A suite runs all its
+listed scenario/variant pairs. If no existing suite matches the request, resolve that selection
+before starting; do not run extra scenarios or modify a shared suite silently. Run replacement
+changes current generated artifacts. It does not erase historical ledger data.
 
 Keep stdout from the execution summary and use its batch ID. Wait for completion. If execution
 fails, inspect that batch and still report the saved results. Do not start new paid attempts merely

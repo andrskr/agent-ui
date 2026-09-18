@@ -1,0 +1,155 @@
+{
+  "actionTimestamp": "2026-09-18T14:00:00Z",
+  "orders": [
+    {
+      "id": "ORD-1042",
+      "customer": "Maya Patel",
+      "email": "maya@example.test",
+      "createdAt": "2026-09-16",
+      "status": "Ready to ship",
+      "address": {
+        "name": "Maya Patel",
+        "line1": "18 Cedar Lane",
+        "line2": "Apartment 4B",
+        "city": "Portland",
+        "region": "OR",
+        "postalCode": "97205",
+        "country": "United States"
+      },
+      "items": [
+        {
+          "name": "Field notebook set",
+          "quantity": 3,
+          "unitPriceCents": 1800
+        },
+        {
+          "name": "Desk organizer with removable compartments",
+          "quantity": 1,
+          "unitPriceCents": 4200
+        }
+      ],
+      "discountCents": 960,
+      "shippingCents": 600,
+      "taxCents": 864,
+      "paymentMethod": "Card ending 4242",
+      "paymentStatus": "Paid",
+      "events": [
+        {
+          "title": "Order placed",
+          "timestamp": "2026-09-16T09:15:00Z",
+          "description": "Maya placed the order."
+        },
+        {
+          "title": "Payment received",
+          "timestamp": "2026-09-16T09:16:00Z",
+          "description": "Payment was confirmed for all items, delivery, and tax."
+        },
+        {
+          "title": "Ready to ship",
+          "timestamp": "2026-09-17T13:40:00Z",
+          "description": "All items were packed and checked against the order."
+        }
+      ]
+    },
+    {
+      "id": "ORD-1041",
+      "customer": "Noah Williams",
+      "email": "noah@example.test",
+      "createdAt": "2026-09-15",
+      "status": "Processing",
+      "address": {
+        "name": "Noah Williams",
+        "line1": "72 Market Street",
+        "line2": "Suite 210, receiving desk",
+        "city": "Denver",
+        "region": "CO",
+        "postalCode": "80202",
+        "country": "United States"
+      },
+      "items": [
+        {
+          "name": "Weekly planning pad",
+          "quantity": 2,
+          "unitPriceCents": 2400
+        },
+        {
+          "name": "Fine point pen collection",
+          "quantity": 1,
+          "unitPriceCents": 1650
+        }
+      ],
+      "discountCents": 0,
+      "shippingCents": 500,
+      "taxCents": 516,
+      "paymentMethod": "Card ending 1881",
+      "paymentStatus": "Paid",
+      "events": [
+        {
+          "title": "Order placed",
+          "timestamp": "2026-09-15T15:10:00Z",
+          "description": "Noah placed the order."
+        },
+        {
+          "title": "Payment received",
+          "timestamp": "2026-09-15T15:11:00Z",
+          "description": "Payment was confirmed."
+        },
+        {
+          "title": "Processing",
+          "timestamp": "2026-09-16T08:00:00Z",
+          "description": "The warehouse is preparing the items. One item is being transferred from another storage location."
+        }
+      ]
+    },
+    {
+      "id": "ORD-1040",
+      "customer": "Leah Kim",
+      "email": "leah@example.test",
+      "createdAt": "2026-09-14",
+      "status": "Shipped",
+      "address": {
+        "name": "Leah Kim",
+        "line1": "305 Birch Avenue",
+        "line2": "",
+        "city": "Austin",
+        "region": "TX",
+        "postalCode": "78701",
+        "country": "United States"
+      },
+      "items": [
+        {
+          "name": "Hardcover project journal",
+          "quantity": 1,
+          "unitPriceCents": 3200
+        },
+        {
+          "name": "Page marker tabs",
+          "quantity": 4,
+          "unitPriceCents": 450
+        }
+      ],
+      "discountCents": 500,
+      "shippingCents": 0,
+      "taxCents": 371,
+      "paymentMethod": "Card ending 5556",
+      "paymentStatus": "Paid",
+      "events": [
+        {
+          "title": "Order placed",
+          "timestamp": "2026-09-14T10:20:00Z",
+          "description": "Leah placed the order."
+        },
+        {
+          "title": "Payment received",
+          "timestamp": "2026-09-14T10:21:00Z",
+          "description": "Payment was confirmed."
+        },
+        {
+          "title": "Order shipped",
+          "timestamp": "2026-09-15T16:30:00Z",
+          "description": "The package was handed to the delivery carrier."
+        }
+      ]
+    }
+  ]
+}

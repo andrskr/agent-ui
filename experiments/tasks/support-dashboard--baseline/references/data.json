@@ -1,0 +1,32 @@
+{
+  "periods": [
+    {
+      "id": "this-week",
+      "label": "This week",
+      "start": "2026-09-14",
+      "end": "2026-09-20",
+      "dailyCreated": [12, 18, 15, 24, 20, 9, 14],
+      "resolved": 103,
+      "firstResponseHours": 2.4,
+      "categories": {
+        "Technical": 56,
+        "Billing": 34,
+        "Account": 22
+      }
+    },
+    {
+      "id": "last-week",
+      "label": "Last week",
+      "start": "2026-09-07",
+      "end": "2026-09-13",
+      "dailyCreated": [8, 14, 12, 16, 18, 7, 9],
+      "resolved": 78,
+      "firstResponseHours": 3.1,
+      "categories": {
+        "Technical": 42,
+        "Billing": 25,
+        "Account": 17
+      }
+    }
+  ]
+}

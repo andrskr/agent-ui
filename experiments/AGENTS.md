@@ -42,6 +42,54 @@ Run `vp run agent-ui tasks --check` from the repository root after task changes.
 prompts, input files, and package settings. It does not open run storage or start an agent. The root
 verification command includes this check. Old task names and runs have no compatibility mapping.
 
+## New scenario standard
+
+Use this standard when the user asks to prepare a new baseline/context/repair scenario. Keep
+existing scenario inputs and saved reports unchanged unless the user asks to revise them.
+
+- Write the same `task.md` prompt for all three variants. Keep the objective, behavior, and success
+  criteria the same. Put variant-specific instructions in the task's `AGENTS.md` and package or
+  check settings in `task.toml`.
+- Do not add accessibility or responsive behavior requirements to new scenario prompts. Preserve the
+  installed components' normal behavior. This rule does not revise existing scenario inputs.
+- Use fixed local reference data when a scenario needs content or records. Copy the same reference
+  files into each variant. Keep the scenario index in `experiments/SCENARIOS.md` current.
+- Baseline uses the starter without added agent instructions or context packages.
+- Context includes the Astryx project guidance and its required packages. Use the current context
+  task as a reference for exact package versions and install permissions. Check that the guidance
+  matches the selected package version. Copy all required inputs into the new task folder.
+- Repair includes the same context inputs, the `root-quality` setup profile, and
+  `[repair] check = "quality"`. Append the repair instructions below to its own `AGENTS.md`.
+- Add a suite that selects only the new scenario and its three variants. Validate the inputs with
+  `vp run agent-ui tasks --check`. Inspect the batch dry-run plan before execution. Preparation
+  alone does not start a model run.
+
+Copy this block into each new repair task's `AGENTS.md`. These are instructions for the experiment
+agent, not commands to run while preparing the scenario:
+
+```md
+## Required repair check
+
+Use this repair workflow for this scenario:
+
+1. After you build or edit the task UI, run `vp lint src --fix` from the app directory. Use normal
+   fixes only. Read any errors that remain and fix the source. Do not enable unsafe fixes.
+2. Run `vp fmt src --write` after lint fixes, even if lint reports errors. Lint fixes can change
+   source formatting.
+3. Run `vp run repair` as a separate command. This is the required check.
+4. Read the complete diagnostics. Fix all reported source errors, then repeat these steps.
+5. Finish only when repair passes for the current source. Repeat these steps after any later source
+   edit. Use this same agent session.
+
+Run one operation per tool call. Use the tool's working directory when it is available. Do not pipe
+repair output through `head`, `tail`, or `grep`. Do not truncate the diagnostics.
+
+Do not use `astryx run repair` or `vp check --fix`. Scope lint fixes and formatting to `src/` so
+they do not modify runner helpers or setup files. The repair command checks a separate source copy
+with the runner's saved configuration. Do not change the check configuration, dependencies, or
+repair tools. A passing build alone is not sufficient.
+```
+
 ## Instruction scope
 
 This file instructs agents that maintain the experiment scaffolding. It is not an input to an

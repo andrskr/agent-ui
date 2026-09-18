@@ -1,0 +1,19 @@
+{
+  "greeting": "How can I help with your workspace today?",
+  "suggestions": ["Plan a project launch", "Show a code example", "Summarize workspace updates"],
+  "failureMessage": "The response could not be generated. Try again.",
+  "responses": {
+    "plan": [
+      "## Project launch plan\n\nStart with a **small, clear outcome** and one owner.\n\n1. Confirm the scope and success criteria.\n2. List the work items and their owners.\n3. Review dependencies before choosing a launch date.\n4. Test the complete flow with a sample user.\n5. Publish the result and review feedback.\n\n### Before launch\n\n- Confirm the support contact.\n- Check the rollback steps.\n- Share a short release note.\n\nKeep a final review point in the schedule so the team can stop a release if the result is not ready.",
+      "## A shorter launch plan\n\nUse three stages: **prepare**, **verify**, and **release**.\n\n1. Prepare the scope, owner, and work list.\n2. Verify the main user flow and resolve blockers.\n3. Release the change and monitor feedback.\n\n### Review questions\n\n- Is the outcome clear?\n- Can support explain the change?\n- Is there a way to undo the release?\n\nKeep each stage small enough that the team can review it without a long meeting."
+    ],
+    "code": [
+      "## Group projects by status\n\nThis example uses a **pure function**. It creates a new result without changing the input.\n\n```js\nfunction groupByStatus(projects) {\n  return projects.reduce((groups, project) => {\n    const key = project.status;\n    groups[key] = [...(groups[key] ?? []), project];\n    return groups;\n  }, {});\n}\n```\n\nPass the project list to `groupByStatus(projects)`.\n\n- Each status becomes a key.\n- Each value contains matching projects.\n- An empty list returns an empty object.\n\nCheck the empty input case before you use the result in a view.",
+      "## Filter active projects\n\nUse `filter` when you need one status rather than every group.\n\n```js\nfunction activeProjects(projects) {\n  return projects.filter((project) => {\n    return project.status === \"Active\";\n  });\n}\n```\n\nThe function returns a **new array** and leaves the input unchanged.\n\n1. Read each project.\n2. Keep projects whose status is Active.\n3. Return the matching list.\n\nFor no matches, show the normal empty state rather than a loading indicator."
+    ],
+    "general": [
+      "## Workspace update\n\nThe current focus is **clear ownership and fewer blocked tasks**.\n\n- Website refresh is ready for content review.\n- Help center work needs an owner for the final article pass.\n- Mobile onboarding has one unresolved validation issue.\n\n### Suggested next steps\n\n1. Confirm owners for the remaining work.\n2. Record the blocker and next action on each affected project.\n3. Review the list at the next team check-in.\n\nThese are sample updates for this demonstration. No workspace data was requested from a service.",
+      "## Next actions\n\nStart with the work that is **waiting for a decision**.\n\n1. Ask the website owner to approve the content review.\n2. Assign the final help center article pass.\n3. Reproduce the onboarding validation issue.\n\n### Keep the update brief\n\n- State the current result.\n- Name the next action.\n- Include the person responsible.\n\nA small, specific update is easier to use than a long list of activity. This response uses fixed demonstration data."
+    ]
+  }
+}

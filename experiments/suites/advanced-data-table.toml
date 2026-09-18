@@ -1,0 +1,3 @@
+schema_version = 1
+scenarios = ["advanced-data-table"]
+variants = ["baseline", "context", "repair"]
