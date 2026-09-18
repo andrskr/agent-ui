@@ -1,10 +1,10 @@
 # Scenario index
 
 The experiment plan has 12 scenarios. Each has baseline, context, and repair variants. The first
-three have frozen reports from earlier inputs. Support dashboard needs a fresh run after the
-dependency and instruction update; its earlier run evidence remains in the ledger, and its generated
-apps and report files were removed. The other eight scenarios have prepared inputs only. Preparation
-does not start a model or create a ledger record.
+three have frozen reports from earlier inputs. Support dashboard has fresh Opus 4.8 and Sonnet 5
+reports after the dependency and instruction update. Its report folders include screenshots and
+browser check notes. Earlier run evidence remains in the ledger. The other eight scenarios have
+prepared inputs only. Preparation does not start a model or create a ledger record.
 
 Select one scenario by its suite name. The prompt links below point to the baseline copy. Each new
 scenario has the same prompt and reference files in all three variants. This also applies to the
@@ -28,8 +28,8 @@ three older scenarios.
 The timeouts are starting limits for future runs, not duration estimates. The larger limits allow
 time for the more complex interactions and repair checks. Suite files select tasks only; they do not
 store a timeout, model, or effort. Supply the timeout on the CLI. An explicit user setting overrides
-these limits. Dashboard is the next planned scenario. The user can select any prepared scenario
-independently.
+these limits. Documentation reader is the next planned scenario. The user can select any prepared
+scenario independently.
 
 ## Prepared inputs
 

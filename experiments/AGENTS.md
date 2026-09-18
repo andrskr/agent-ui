@@ -232,7 +232,11 @@ task still owns its complete prompt and instructions. Profiles do not inherit si
 
 The root-quality profile copies the shared Vite+ policy and the custom Oxlint source package. It
 adds the exact plugin dependency. The profile configuration composes this policy with the starter
-build configuration. It maps the application source path to `src`; rule settings stay the same.
+build configuration. It maps the application source path to `src`; rule settings stay the same. Use
+`mergeConfig` for this composition. Vite+ adds plugins to `qualityConfig`, so a shallow object
+spread would replace the starter's StyleX and React plugins. Check a copied repair app that uses
+`stylex.create` in both the dev server and production preview after configuration changes. A build
+can pass with an uncompiled StyleX call that fails when the browser loads the page.
 
 Repair is opt-in. The runner adds `vp run repair` and a required-check instruction to the submitted
 prompt. The task's AGENTS.md remains a separate, unchanged input. The command requests the named
