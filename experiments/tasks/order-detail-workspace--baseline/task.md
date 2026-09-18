@@ -3,6 +3,8 @@ Build an order detail workspace with a master list and a separate detail panel.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Use the three orders in `references/data.json`. Copy the data into `src/` before using it. Preserve
 the supplied customers, addresses, amounts, order dates, and event history. Display money in USD.
 Amounts in the data are integer cents. Use the supplied fixed action timestamp for new events.

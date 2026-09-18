@@ -3,6 +3,8 @@ Build a support overview dashboard for a workspace.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Use the fixed data in `references/data.json`. Copy the data into `src/` before using it. Do not
 replace the supplied data with random values or values based on the current date.
 

@@ -1,4 +1,4 @@
 interface:
   display_name: 'Experiment report'
-  short_description: 'Run experiments and build frozen HTML reports'
-  default_prompt: 'Use $experiment-report to run the selected scenario with my model and generate the standard HTML report.'
+  short_description: 'Prepare experiments, run models, and save reports'
+  default_prompt: 'Use $experiment-report for the selected scenario and model. Follow the current experiment setup. Generate the standard HTML report and capture UI screenshots when requested. Stop all servers started for the work. Preparation and report-only requests must not start a provider.'

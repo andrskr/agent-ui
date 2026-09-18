@@ -3,6 +3,8 @@ Build a workspace command palette with nested project selection.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Use the commands, projects, and initial workspace state in `references/data.json`. Copy the data
 into `src/` before using it. Do not add commands or projects.
 

@@ -4,6 +4,8 @@ the task code markers. You can add supporting files under `src/`.
 This project uses the Astryx design system. Build the interface from its installed components.
 Choose the components that fit the task.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Show a page title, a short description, and a Create project button. Show the projects in a table
 with four columns: Project name, Owner, Status, and Last update. Use text as well as color for
 status. Keep the rows in the order below. Do not add pagination, sorting, row selection, or a detail
@@ -39,8 +41,5 @@ search and status filter so the new row is visible, and show a confirmation mess
 name. Cancel or close discards the draft. Opening the dialog again starts with empty fields.
 
 Keep all data in local React state. Do not call a network service or save data across page reloads.
-Use labeled, keyboard-accessible controls. Return focus to Create project when the dialog closes.
-Keep the page usable on a narrow screen. The table can scroll horizontally when needed.
-
 Do not add dependencies or change files outside `src/`. In your final response, state what you built
 and how you checked it.

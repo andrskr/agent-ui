@@ -4,6 +4,8 @@ Build a form that invites a person to a workspace. Put it in the marked task cod
 This project uses the Astryx design system. Build the interface from the components it installs.
 Decide yourself which ones fit.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 The form must:
 
 - show a title and one line of help text

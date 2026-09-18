@@ -1,11 +1,14 @@
 # Scenario index
 
 The experiment plan has 12 scenarios. Each has baseline, context, and repair variants. The first
-three have saved reports. The remaining nine have prepared inputs only. Preparation does not start a
-model or create a ledger record.
+three have frozen reports from earlier inputs. Support dashboard needs a fresh run after the
+dependency and instruction update; its earlier run evidence remains in the ledger, and its generated
+apps and report files were removed. The other eight scenarios have prepared inputs only. Preparation
+does not start a model or create a ledger record.
 
 Select one scenario by its suite name. The prompt links below point to the baseline copy. Each new
-scenario has the same prompt and reference files in all three variants.
+scenario has the same prompt and reference files in all three variants. This also applies to the
+three older scenarios.
 
 | #   | Scenario and prompt                                                          | Main UI coverage                                                              | Suite                      | Agent timeout per task         |
 | --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------- | ------------------------------ |
@@ -30,18 +33,24 @@ independently.
 
 ## Prepared inputs
 
-Each new task folder contains `task.md`, `task.toml`, and `references/data.json`. Media attachment
-tasks also contain three small PNG fixtures. Fixture values and image bytes are identical across
-variants. The prompts tell the experiment agent to copy needed reference files into `src/`.
+Every task contains `task.md`. Tasks can also contain `task.toml` and reference files. The nine
+later scenarios include `references/data.json`; media attachment tasks also contain three PNG
+fixtures. Fixture values and image bytes are identical across variants. The prompts tell the
+experiment agent to copy needed reference files into `src/`.
 
-- Baseline has no extra context or packages. Its `task.toml` contains only a comment.
-- Context adds the Astryx project guidance and the same exact context package versions used by
-  Notification preferences.
+- All variants use the shared starter with Astryx and Recharts. Package versions are pinned in
+  `starter/package.json`. `react-is` matches React.
+- All three variants have the same general workflow in their `AGENTS.md`. This includes tool use,
+  component API checks, complete diagnostics, source limits, and validation.
+- Baseline has only those general instructions. Its `task.toml` is absent or contains only a
+  comment. It has no Astryx-specific instructions or CLI packages.
+- Context appends the Astryx guidance and adds matching CLI packages.
 - Repair adds the same context inputs plus the `root-quality` profile and required `quality` check.
   Its instructions require `vp lint src --fix`, `vp fmt src --write`, and `vp run repair`.
 
-New prompts omit accessibility and responsive behavior requirements. Existing prompts and frozen
-reports remain unchanged. Each task owns complete inputs; it does not load a sibling task's files.
+All current prompts omit accessibility and responsive behavior requirements. All repair tasks use
+the current workflow, including the three older scenarios. Frozen reports and ledger snapshots keep
+their original inputs. Each task owns complete inputs; it does not load a sibling task's files.
 
 ## Select and validate a run
 
@@ -62,4 +71,6 @@ Each of these suites selects exactly three tasks. There is no new suite that run
 
 Keep the execution summary's batch ID for reporting. A task run replaces its current generated
 artifacts but keeps ledger history. Save approved reports and requested screenshots under
-`reports/SCENARIO/MODEL-EFFORT/` using the experiment-report skill's rules.
+`reports/SCENARIO/MODEL-EFFORT/` using the experiment-report skill's rules. For two models, finish
+the first model's report and requested screenshots before starting the next model. The next batch
+replaces the same tasks' generated apps.

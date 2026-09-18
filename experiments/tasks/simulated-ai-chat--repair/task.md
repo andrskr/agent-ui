@@ -3,6 +3,8 @@ Build a simulated AI chat interface for a workspace assistant.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Use the fixed greeting, suggestion prompts, response variants, and failure message in
 `references/data.json`. Copy the data into `src/` before using it. This is a fake assistant. Do not
 connect to a model, call an API, or add a real AI service.

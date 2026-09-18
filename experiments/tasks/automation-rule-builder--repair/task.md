@@ -3,6 +3,8 @@ Build an automation rule builder for a support workspace.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Use the field options, sample tickets, and initial rule in `references/data.json`. Copy the data
 into `src/` before using it. This is a local rule editor and preview, not an automation service.
 

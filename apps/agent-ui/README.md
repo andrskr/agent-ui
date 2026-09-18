@@ -178,6 +178,7 @@ Name each task folder `<group>--<variant>`. For example:
 experiments/tasks/
   _template/
   invite-member--baseline/task.md
+  invite-member--baseline/AGENTS.md
   invite-member--context/task.md
   invite-member--context/AGENTS.md
   invite-member--repair/task.md
@@ -195,10 +196,13 @@ add another setup. Keep the main objective and success criteria the same. The ap
 names; it cannot prove that two prompts request equivalent work. Input and setup differences remain
 visible in the comparison.
 
-The Invite Member variants have the same prompt. `baseline` has no project instructions. `context`
-adds the Astryx CLI and its project instructions. `repair` adds the root-quality setup profile and a
-required check-and-repair step within the same run. Every variant starts from the starter. A variant
-named `repair` does not inherit another run's output or start a separate agent pass.
+All 12 scenarios have matching prompts across their three variants. Every variant has the same
+general workflow in `AGENTS.md` and receives the shared starter's Astryx and Recharts runtime
+packages. `baseline` has only the general instructions. `context` adds the Astryx CLI and
+Astryx-specific guidance. `repair` adds the root-quality setup profile and requires
+`vp lint src --fix`, `vp fmt src --write`, and `vp run repair` within the same run. This workflow
+applies to old and new tasks. Every variant starts from the starter. A variant named `repair` does
+not inherit another run's output or start a separate agent pass.
 
 Run `vp run agent-ui tasks --check` after changing task inputs. It checks names, prompts, input
 files, and package settings without opening run storage or starting an agent.
@@ -342,10 +346,11 @@ For a task that needs the Astryx CLI, use:
 
 ```toml
 [dev-dependencies]
-"@astryxdesign/cli" = "0.5.4"
+"@astryxdesign/cli" = "0.6.2"
+"gpt-tokenizer" = "3.4.0"
 
 [allow-builds]
-"@astryxdesign/cli@0.5.4" = true
+"@astryxdesign/cli@0.6.2" = true
 ```
 
 Use `[dependencies]` for runtime packages. Both sections accept npm registry names and exact

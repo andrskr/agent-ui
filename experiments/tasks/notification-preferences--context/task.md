@@ -3,6 +3,8 @@ Build a notification preferences page for a workspace.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in src/app.tsx and keep the markers. You can add supporting files under src/.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Show a page title and a short description. Organize the settings into three sections:
 
 Activity
@@ -35,8 +37,6 @@ Reset must restore the most recently saved values and clear any messages. It mus
 the initial defaults.
 
 Keep all state local. Do not call a network service or preserve settings after a page reload.
-
-Use labeled, keyboard-accessible controls. Keep the page usable on a narrow screen.
 
 Do not add dependencies or change files outside src/. In your final response, state what you built
 and how you checked it.

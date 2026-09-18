@@ -9,10 +9,10 @@ cargo:
 catalogMode: prefer
 
 catalog:
-  '@astryxdesign/build': 0.5.4
-  '@astryxdesign/cli': 0.5.4
-  '@astryxdesign/core': 0.5.4
-  '@astryxdesign/theme-neutral': 0.5.4
+  '@astryxdesign/build': 0.6.2
+  '@astryxdesign/cli': 0.6.2
+  '@astryxdesign/core': 0.6.2
+  '@astryxdesign/theme-neutral': 0.6.2
   '@babel/core': 8.0.1
   '@base-ui/react': 1.8.0
   '@base-ui/utils': 0.4.0

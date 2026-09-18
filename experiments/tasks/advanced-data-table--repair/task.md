@@ -3,6 +3,8 @@ Build a support ticket workspace centered on an advanced data table.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Use the 48 fixed tickets in `references/data.json`. Copy the data into `src/` before using it. Do
 not generate random values or use the current date. Keep each ticket's ID stable after updates.
 

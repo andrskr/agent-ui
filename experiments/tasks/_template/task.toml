@@ -5,11 +5,12 @@
 # zod = "4.1.0"
 
 # [dev-dependencies]
-# "@astryxdesign/cli" = "0.5.4"
+# "@astryxdesign/cli" = "0.6.2"
+# "gpt-tokenizer" = "3.4.0"
 
 # Allow scripts only after reviewing this package version.
 # [allow-builds]
-# "@astryxdesign/cli@0.5.4" = true
+# "@astryxdesign/cli@0.6.2" = true
 
 # Copy reusable tools and configuration into this task's workspace.
 # [setup]

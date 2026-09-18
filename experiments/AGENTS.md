@@ -6,7 +6,8 @@ application lives in `apps/agent-ui/`. Run `vp run agent-ui` to open it.
 ## Structure
 
 - `starter/` is an independent React and Astryx application.
-- `tasks/_template/` is an empty task template. It is not an executable task.
+- `tasks/_template/` holds the prompt shell and shared workflow instructions. It is not executable.
+- `instructions/astryx.md` holds the additional Astryx instructions for context and repair tasks.
 - `tasks/<group>--<variant>/task.md` contains the original prompt.
 - `tasks/<group>--<variant>/task.toml` optionally adds or overrides npm packages for that run.
 - `tasks/<group>--<variant>/AGENTS.md` optionally contains instructions for the generated project.
@@ -15,9 +16,9 @@ application lives in `apps/agent-ui/`. Run `vp run agent-ui` to open it.
   pair must have a task. Do not add generated evidence or SQLite files to this directory.
 
 To define a task, copy `tasks/_template/` to `tasks/<group>--<variant>/`. Use the full folder name
-as the task ID. Fill in the prompt. Remove `AGENTS.md` for a bare Astryx task. Add reference files
-when needed. The prompt can refer to paths such as `references/desktop.png`. Do not add generated
-application code or run reports to a task folder.
+as the task ID. Fill in the prompt. Keep the shared `AGENTS.md` in every variant. Add reference
+files when needed. The prompt can refer to paths such as `references/desktop.png`. Do not add
+generated application code or run reports to a task folder.
 
 ## Task groups
 
@@ -42,30 +43,40 @@ Run `vp run agent-ui tasks --check` from the repository root after task changes.
 prompts, input files, and package settings. It does not open run storage or start an agent. The root
 verification command includes this check. Old task names and runs have no compatibility mapping.
 
-## New scenario standard
+## Scenario standard
 
-Use this standard when the user asks to prepare a new baseline/context/repair scenario. Keep
-existing scenario inputs and saved reports unchanged unless the user asks to revise them.
+All 12 scenarios use this standard, including Invite member, Project list, and Notification
+preferences. Use it when preparing or revising tasks. A model run uses the checked-in inputs; do not
+upgrade packages or rewrite instructions as an incidental part of running it. Saved ledger snapshots
+and frozen reports keep their original inputs and measurements.
 
 - Write the same `task.md` prompt for all three variants. Keep the objective, behavior, and success
   criteria the same. Put variant-specific instructions in the task's `AGENTS.md` and package or
   check settings in `task.toml`.
-- Do not add accessibility or responsive behavior requirements to new scenario prompts. Preserve the
-  installed components' normal behavior. This rule does not revise existing scenario inputs.
+- Do not add accessibility or responsive behavior requirements to scenario prompts. Preserve the
+  installed components' normal behavior.
 - Use fixed local reference data when a scenario needs content or records. Copy the same reference
   files into each variant. Keep the scenario index in `experiments/SCENARIOS.md` current.
-- Baseline uses the starter without added agent instructions or context packages.
-- Context includes the Astryx project guidance and its required packages. Use the current context
-  task as a reference for exact package versions and install permissions. Check that the guidance
-  matches the selected package version. Copy all required inputs into the new task folder.
+- Every variant starts its `AGENTS.md` with the exact contents of `tasks/_template/AGENTS.md`. This
+  shared block contains general tool use, package discovery, file limits, and validation. Keep it
+  free of Astryx CLI commands, design rules, theme-token rules, and template-specific advice.
+- Baseline uses that shared block and the shared starter, including Recharts. It has no additional
+  Astryx guidance or CLI packages. Keep the available-package statement in all three prompt copies.
+- Context appends `instructions/astryx.md` after the shared block. Add the exact CLI and tokenizer
+  versions from the current context task configuration. Match the CLI install permission to its
+  declared version.
 - Repair includes the same context inputs, the `root-quality` setup profile, and
   `[repair] check = "quality"`. Append the repair instructions below to its own `AGENTS.md`.
+- When adding general workflow advice, apply it to all three variants. Keep scenario requirements in
+  their matching prompts. Reserve context additions for Astryx-specific guidance and repair
+  additions for the required quality workflow. Do not give only context a general tooling advantage.
 - Add a suite that selects only the new scenario and its three variants. Validate the inputs with
   `vp run agent-ui tasks --check`. Inspect the batch dry-run plan before execution. Preparation
   alone does not start a model run.
 
-Copy this block into each new repair task's `AGENTS.md`. These are instructions for the experiment
-agent, not commands to run while preparing the scenario:
+Copy this block into every repair task's `AGENTS.md`, after its complete context instructions. Keep
+it the same for old and new scenarios. These are instructions for the experiment agent, not commands
+to run while preparing the scenario:
 
 ```md
 ## Required repair check
@@ -109,10 +120,11 @@ Use `task.toml` when a task needs packages beyond the starter:
 
 ```toml
 [dev-dependencies]
-"@astryxdesign/cli" = "0.5.4"
+"@astryxdesign/cli" = "0.6.2"
+"gpt-tokenizer" = "3.4.0"
 
 [allow-builds]
-"@astryxdesign/cli@0.5.4" = true
+"@astryxdesign/cli@0.6.2" = true
 ```
 
 Use `[dependencies]` for runtime packages and `[dev-dependencies]` for development tools. Use exact
@@ -145,9 +157,12 @@ already in use.
 
 ## Starter maintenance
 
+- The shared starter includes Recharts and a `react-is` version that matches React. All variants
+  receive these runtime packages. Keep the starter placeholder free of chart examples.
 - Keep dependencies explicit. Do not use workspace dependencies or the root catalog.
 - Keep the starter's lockfile in version control.
-- Keep the baseline starter free of the Astryx CLI and shared agent instructions.
+- Keep the starter free of the Astryx CLI and `AGENTS.md`. The task copy supplies its instructions,
+  including the shared workflow for baseline.
 - For maintenance, use the Astryx CLI installed in `apps/playground` to check component APIs.
 - Keep the Astryx reset, component CSS, Neutral theme CSS, and theme provider wired together.
 - Bundle the Figtree font used by the Neutral theme. Do not depend on a remote font service.
@@ -156,6 +171,35 @@ already in use.
 - Keep `src/app.tsx` limited to the marked `hello` placeholder.
 - Replace the marked placeholder with task code only in a run's project copy.
 - Put experiment evidence and browser captures outside this repository.
+
+## Dependency and instruction updates
+
+When an upgrade is requested, update the complete setup together:
+
+1. Align Astryx core, theme, build, and CLI versions in the root catalog, independent starter, and
+   every context/repair `task.toml`. Update matching install permissions and both lockfiles. Read
+   exact versions from the manifests; do not copy versions from a historical report.
+2. Keep `react-is` aligned with React when updating Recharts. Install shared runtime dependencies in
+   the starter so baseline, context, and repair have the same available UI packages.
+3. Regenerate the Astryx block with the installed CLI in `apps/playground` using
+   `vp exec astryx init --features agents --agent-docs-path AGENTS.md`. Copy that block into
+   `instructions/astryx.md`. Keep general workflow advice in `tasks/_template/AGENTS.md`.
+4. Copy the shared workflow into every baseline, context, and repair `AGENTS.md`. Append
+   `instructions/astryx.md` to context and repair, then append the repair block above to repair.
+   Apply additional general advice to all three variants. Keep Astryx-only advice in the Astryx
+   section. Each resulting task file must be complete; do not add runtime inheritance.
+5. Review the CLI migration plan with `vp exec astryx upgrade --from PREVIOUS_VERSION` from
+   `apps/playground`. Apply needed source changes. Rebuild generated themes. Refresh examples in
+   this file, the task template, scenario index, runner README, and experiment-report skill.
+6. Check that each group's prompts and reference bytes match across variants. Check that all three
+   instruction files have the same shared prefix and only the intended additions. Check every repair
+   profile, required check, and workflow. Run `vp run agent-ui tasks --check`, starter verification,
+   and root verification. For runtime package changes, install and build a source-only copy and
+   check the relevant UI in the browser. Stop test servers after the check.
+
+These changes affect future batches only. Do not regenerate old reports, rewrite ledger evidence, or
+start paid experiments as part of an instruction update. For an authorized fresh rerun, create a new
+batch. Resume uses the old snapshot and will not pick up revised instructions.
 
 After a starter change, run its verification command and the root `vp run verify`. Check the
 rendered page in a browser. Confirm the theme, CSS, and placeholder work. Before claiming the

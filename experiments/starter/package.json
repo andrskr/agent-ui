@@ -10,15 +10,17 @@
     "verify": "vp check && vp run build"
   },
   "dependencies": {
-    "@astryxdesign/core": "0.5.4",
-    "@astryxdesign/theme-neutral": "0.5.4",
+    "@astryxdesign/core": "0.6.2",
+    "@astryxdesign/theme-neutral": "0.6.2",
     "@fontsource/figtree": "5.3.0",
     "@stylexjs/stylex": "0.19.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "react-is": "19.3.0",
+    "recharts": "3.10.1"
   },
   "devDependencies": {
-    "@astryxdesign/build": "0.5.4",
+    "@astryxdesign/build": "0.6.2",
     "@babel/core": "7.29.7",
     "@stylexjs/babel-plugin": "0.19.0",
     "@stylexjs/unplugin": "0.19.0",

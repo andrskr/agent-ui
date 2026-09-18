@@ -2,8 +2,8 @@
 name: experiment-report
 description:
   Run Agent UI experiments with a selected model, or turn an existing ledger batch into the approved
-  self-contained HTML report. Use for scenario metrics reports with the standard charts,
-  configuration, prompt, and activity tables.
+  self-contained HTML report. Prepare or update scenario instructions when requested. Use for the
+  standard metrics report and requested UI screenshots saved by scenario and model.
 ---
 
 # Experiment report
@@ -14,6 +14,10 @@ sufficient. The generator uses only the standard library and opens SQLite read-o
 
 ## Select the work
 
+- **Prepare or update:** the user asks for scenario inputs, instructions, or dependency maintenance.
+  Use the [scenario standard](../../../experiments/AGENTS.md). Update the requested scope and
+  validate it. This mode does not start providers, create reports from invented data, or resume a
+  batch. An update across all tasks includes old and new scenarios and the task template.
 - **Run and report:** the user asks to run an experiment and gives a model. Use the selected
   scenario or suite from the conversation. If selection is unclear, inspect suite manifests and ask
   only for the missing selection. Do not silently run a larger suite.
@@ -30,7 +34,7 @@ effective value.
 ## Run and record
 
 Before a new model run, read the [experiment setup rules](../../../experiments/AGENTS.md). When the
-user asks to prepare a new scenario, use their **New scenario standard**. Each repair task must
+user asks to prepare or revise a scenario, use the **Scenario standard**. Each repair task must
 contain its own copy of the repair instructions. The reporting skill is not sent to the model. Use
 the [scenario index](../../../experiments/SCENARIOS.md) to find prepared prompts, exact suite names,
 and scenario timeout limits. Read only the selected scenario's inputs.
@@ -39,10 +43,20 @@ Check the selected inputs before execution:
 
 - Confirm the selected scenario and variants. For a full scenario, expect baseline, context, and
   repair with the same prompt and success criteria. Honor an explicit request for fewer variants.
-- Check the context guidance, required packages, and repair configuration. For a new scenario,
-  confirm that repair runs lint auto-fix, source formatting, and then the recorded repair check.
-  Existing scenarios keep their saved instructions unless the user asks to update them. Do not
-  silently replace an older repair workflow when rerunning a scenario.
+- Check the current starter, shared workflow, Astryx guidance, package versions, and repair
+  configuration for old and new scenarios. The starter includes Recharts for all variants.
+  `experiments/tasks/_template/AGENTS.md` is the shared prefix of every variant's instructions,
+  including baseline. Context and repair append `experiments/instructions/astryx.md`. Repair also
+  adds the standard repair instructions, `root-quality`, and `[repair] check = "quality"`.
+- Check instruction parity before a run. General tool use, API checks, diagnostics, and validation
+  advice must be identical across all three variants. Baseline must not receive Astryx-specific
+  commands or design rules. Do not give context extra general guidance as a workaround for a failed
+  run. Put general improvements in the shared template and all three task copies during an
+  authorized instruction update. Each task file remains complete; no runtime inheritance is used.
+- Every current repair task must run normal lint auto-fix on `src/`, source formatting, and then the
+  recorded repair check in the same agent session. Read complete diagnostics and repeat after source
+  changes. No new provider pass is required. Check the package pins against the current manifests,
+  not an old report. Do not upgrade or rewrite inputs during an ordinary run request.
 - Resolve the provider, exact model ID, effort choice, and agent timeout. Use the user's settings or
   the established settings for the selected scenario. For a new scenario without a specified
   timeout, use `--timeout 1800` as the starting limit. Show the selected settings before execution.
@@ -68,6 +82,41 @@ fails, inspect that batch and still report the saved results. Do not start new p
 to get an all-passed report. Resume or retry only when requested or already authorized by the task.
 Do not clear the database. Start preview servers and capture UI screenshots only when the user
 requests them.
+
+## Multiple models, screenshots, and shutdown
+
+Run models sequentially when they select the same task IDs. The runner has one storage lock and one
+current generated app per task. Finish the first model's report and requested screenshots before the
+next model replaces those apps. Parallel model runs in the same storage are not supported.
+
+For requested screenshots:
+
+1. Match the current task run IDs to the exact batch. A previous batch's ledger metrics do not mean
+   its generated app is still present. If its app is gone, report that limit; do not capture a newer
+   model's app under the older model's name or silently pay for a replacement run.
+2. Start each selected task with `vp run agent-ui preview TASK_ID --no-open`. Track its session,
+   process, and actual URL. Use the available browser tool after the server is ready.
+3. Use the same viewport and scale for all variants. Use 1440 × 1000 CSS pixels and scale 2 unless
+   the user requests another size. Let fonts and page content load. Check the required interactions,
+   then return to the initial state and capture a full-page PNG. Do not edit generated source to
+   improve a screenshot. Record an error or incomplete UI as observed.
+4. Save `baseline.png`, `context.png`, and `context-plus-repair.png` beside that model's report.
+   Open each saved image to check the content. Keep screenshots separate from the offline HTML.
+5. Stop all preview and temporary report servers started for this work, including after a failure.
+   Wait for their processes to exit and confirm their ports no longer listen. Close temporary
+   browser tabs. Do not stop unrelated user services.
+
+When the user stops an experiment, stop dispatch and the owned provider processes. Cancelling a
+shell wrapper can leave provider children alive. Check the actual process groups and terminate only
+the owned groups if needed. Open a normal runner command such as `show TASK_ID` after all processes
+stop to recover interrupted evidence. Confirm recording before any authorized artifact cleanup. Do
+not resume after a stop request without new run authorization.
+
+Higher context or repair cost is a result to investigate, not proof of an error. Query the exact
+run's activity and command output. Separate setup, discovery, implementation, and failed checks. Do
+not claim that revised instructions must be cheaper. If the user requests cleanup, extract the
+findings first and delete only the selected artifacts. Keep ledger history unless the user asks to
+remove it.
 
 ## Generate from saved evidence
 
@@ -157,3 +206,9 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .agents/skills/experim
 Tests use in-memory SQLite and HTML. A browser preview and real-ledger report generation are manual
 validation steps, not automated tests. The approved reference is
 `reports/invite-member/opus-4-8-high/report.html`; leave it frozen.
+
+For instruction or dependency maintenance, also follow **Dependency and instruction updates** in the
+experiment setup rules. Check prompt/reference parity, every repair task, and the template. Run
+`vp run agent-ui tasks --check` and `vp run verify`. Runtime package changes also need the starter
+and independent-copy checks described there. Do not regenerate historical reports to make them match
+current dependency versions.

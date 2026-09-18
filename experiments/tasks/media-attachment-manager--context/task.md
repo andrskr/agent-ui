@@ -3,6 +3,8 @@ Build a media attachment manager for a project.
 This project uses the Astryx design system. Use its installed components. Replace the marked task
 code region in `src/app.tsx` and keep the markers. You can add supporting files under `src/`.
 
+Recharts is already installed. Use it for any charts requested by this task.
+
 Use `references/data.json` and the three supplied PNG images as the initial attachments. Copy these
 files into `src/` before using them. The initial records contain two uploaded images and one failed
 image. The supplied sizes match the sample files.
