@@ -1,0 +1,3 @@
+schema_version = 1
+scenarios = ["notification-preferences"]
+variants = ["baseline", "context", "repair"]

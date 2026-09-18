@@ -20,6 +20,10 @@ scenarios = ["invite-member"]
 variants = ["baseline", "context", "repair"]
 ```
 
+The `notification-preferences` suite selects Notification preferences and the same three variants.
+Use `--suite notification-preferences --timeout 1800` to run that scenario with a 30-minute agent
+timeout per task.
+
 Each scenario/variant pair must exist. No wildcard expands the selection. Names, duplicates, empty
 lists, and unknown fields are checked before execution. Without `--record`, a batch has no permanent
 ledger or resume support. `--dry-run` creates no storage and starts no provider process.
