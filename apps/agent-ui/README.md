@@ -196,10 +196,11 @@ add another setup. Keep the main objective and success criteria the same. The ap
 names; it cannot prove that two prompts request equivalent work. Input and setup differences remain
 visible in the comparison.
 
-All 12 scenarios have matching prompts across their three variants. Every variant has the same
-general workflow in `AGENTS.md` and receives the shared starter's Astryx and Recharts runtime
-packages. `baseline` has only the general instructions. `context` adds the Astryx CLI and
-Astryx-specific guidance. `repair` adds the root-quality setup profile and requires
+The old scenario catalog has been cleared. See [the scenario index](../../experiments/SCENARIOS.md)
+for the replacement plan. New scenarios must have matching prompts across their three variants.
+Every variant has the same general workflow in `AGENTS.md` and receives the shared starter's Astryx
+and Recharts runtime packages. `baseline` has only the general instructions. `context` adds the
+Astryx CLI and Astryx-specific guidance. `repair` adds the root-quality setup profile and requires
 `vp lint src --fix`, `vp fmt src --write`, and `vp run repair` within the same run. This workflow
 applies to old and new tasks. Every variant starts from the starter. A variant named `repair` does
 not inherit another run's output or start a separate agent pass.

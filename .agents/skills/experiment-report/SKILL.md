@@ -31,6 +31,17 @@ the user. Omission uses the runner's local model default. `--effort default` has
 meaning: the provider selects the effort. Report the saved requested value, not an invented
 effective value.
 
+## Run scope
+
+The default workflow is task execution and report generation only. Do not start preview servers,
+perform manual UI interactions, or capture screenshots unless the user explicitly requests that work
+for the current run. "You know the drill" means run the selected tasks and generate reports. It does
+not authorize manual browser checks. Do not add paid retries or extra model runs.
+
+Scenarios must focus on a small, isolated UI. Use a mix of simple and moderately complex pieces. Do
+not turn a component experiment into a complete page or application. The old scenario catalog was
+removed. Agree on replacement cases before creating inputs or starting runs.
+
 ## Run and record
 
 Before a new model run, read the [experiment setup rules](../../../experiments/AGENTS.md). When the
@@ -80,8 +91,8 @@ changes current generated artifacts. It does not erase historical ledger data.
 Keep stdout from the execution summary and use its batch ID. Wait for completion. If execution
 fails, inspect that batch and still report the saved results. Do not start new paid attempts merely
 to get an all-passed report. Resume or retry only when requested or already authorized by the task.
-Do not clear the database. Start preview servers and capture UI screenshots only when the user
-requests them.
+Do not clear the database during a run. A separate, explicit cleanup request can authorize a reset.
+Start preview servers and capture UI screenshots only when requested for the current run.
 
 ## Multiple models, screenshots, and shutdown
 
@@ -97,9 +108,9 @@ For requested screenshots:
 2. Start each selected task with `vp run agent-ui preview TASK_ID --no-open`. Track its session,
    process, and actual URL. Use the available browser tool after the server is ready.
 3. Use the same viewport and scale for all variants. Use 1440 × 1000 CSS pixels and scale 2 unless
-   the user requests another size. Let fonts and page content load. Check the required interactions,
-   then return to the initial state and capture a full-page PNG. Do not edit generated source to
-   improve a screenshot. Record an error or incomplete UI as observed.
+   the user requests another size. Let fonts and page content load, then capture a full-page PNG of
+   the initial state. Do not perform manual interactions unless separately requested. Do not edit
+   generated source to improve a screenshot. Record an error or incomplete UI as observed.
 4. Save `baseline.png`, `context.png`, and `context-plus-repair.png` beside that model's report.
    Open each saved image to check the content. Keep screenshots separate from the offline HTML.
 5. Stop all preview and temporary report servers started for this work, including after a failure.
@@ -172,10 +183,11 @@ JavaScript off: chart labels, tables, and native disclosures still work.
 
 ## Check and deliver
 
-Read the generator's JSON summary. Investigate its warnings rather than changing the numbers. Open
-the generated HTML in the available browser tool. Check the prompt and configuration disclosures,
-the four bar charts, and one tooltip. Check a narrow viewport after template changes. Never claim a
-real model run when the input was a test fixture.
+Read the generator's JSON summary. Investigate its warnings rather than changing the numbers. Check
+the saved HTML for the prompt and configuration disclosures, four bar charts, and embedded assets.
+Do not open the browser or perform manual interactions during an ordinary report run. Browser checks
+after report-template changes require a separate request. Never claim a real model run when the
+input was a test fixture.
 
 Link the temporary HTML and give a short result summary. Only copy an approved report into
 `reports/SCENARIO/MODEL-EFFORT/report.html` when the user asks to save it. Keep scenario folders,
@@ -203,9 +215,9 @@ For changes to this skill or generator, run:
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .agents/skills/experiment-report/scripts -p 'test_*.py'
 ```
 
-Tests use in-memory SQLite and HTML. A browser preview and real-ledger report generation are manual
-validation steps, not automated tests. The approved reference is
-`reports/invite-member/opus-4-8-high/report.html`; leave it frozen.
+Tests use in-memory SQLite and HTML. Use `assets/report.html` as the design reference. Historical
+reports were removed during the experiment reset. Real-ledger report generation requires saved run
+data. Browser checks are optional and require a separate request.
 
 For instruction or dependency maintenance, also follow **Dependency and instruction updates** in the
 experiment setup rules. Check prompt/reference parity, every repair task, and the template. Run

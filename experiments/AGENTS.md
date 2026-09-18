@@ -45,10 +45,12 @@ verification command includes this check. Old task names and runs have no compat
 
 ## Scenario standard
 
-All 12 scenarios use this standard, including Invite member, Project list, and Notification
-preferences. Use it when preparing or revising tasks. A model run uses the checked-in inputs; do not
-upgrade packages or rewrite instructions as an incidental part of running it. Saved ledger snapshots
-and frozen reports keep their original inputs and measurements.
+Use this standard when preparing or revising tasks. The old scenario catalog was removed.
+Replacement scenarios must test small, isolated UI pieces, with a mix of simple and moderately
+complex cases. Agree on the cases before preparing them. Avoid whole pages and broad application
+flows. A model run uses the checked-in inputs; do not upgrade packages or rewrite instructions as an
+incidental part of running it. Saved ledger snapshots and frozen reports keep their original inputs
+and measurements.
 
 - Write the same `task.md` prompt for all three variants. Keep the objective, behavior, and success
   criteria the same. Put variant-specific instructions in the task's `AGENTS.md` and package or
