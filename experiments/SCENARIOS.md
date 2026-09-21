@@ -1,16 +1,17 @@
 # Scenario index
 
-The new plan will contain 12 small, isolated UI cases. Five cases are prepared. All five cases have
-completed Opus 4.8 and Sonnet 5 reports. The remaining seven cases have not been selected. The
+The new plan will contain 12 small, isolated UI cases. Six cases are prepared. All six cases have
+completed Opus 4.8 and Sonnet 5 reports. The remaining six cases have not been selected. The
 previous catalog and results were cleared on 18 September 2026.
 
-| #   | Scenario                                                           | UI coverage                                                                        | Suite                 | Agent timeout per task |
-| --- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | --------------------- | ---------------------- |
-| 1   | [Recent transactions](tasks/recent-transactions--baseline/task.md) | Eight-row table, merchant icons, status labels, amounts, search, and status filter | `recent-transactions` | 1800 seconds           |
-| 2   | [Share document](tasks/share-document--baseline/task.md)           | Dialog, initial avatars, role selectors, access selection, and copy-link feedback  | `share-document`      | 1800 seconds           |
-| 3   | [Weekly activity](tasks/weekly-activity--baseline/task.md)         | Two-series line chart, weekly total, segmented filter, legend, and tooltips        | `weekly-activity`     | 1800 seconds           |
-| 4   | [File attachments](tasks/file-attachments--baseline/task.md)       | Drop zone, file rows, validation, simulated upload progress, retry, and removal    | `file-attachments`    | 1800 seconds           |
-| 5   | [AI chat panel](tasks/ai-chat-panel--baseline/task.md)             | Message layout, avatars, text composer, simulated reply, and waiting state         | `ai-chat-panel`       | 1800 seconds           |
+| #   | Scenario                                                           | UI coverage                                                                             | Suite                 | Agent timeout per task |
+| --- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | --------------------- | ---------------------- |
+| 1   | [Recent transactions](tasks/recent-transactions--baseline/task.md) | Eight-row table, merchant icons, status labels, amounts, search, and status filter      | `recent-transactions` | 1800 seconds           |
+| 2   | [Share document](tasks/share-document--baseline/task.md)           | Dialog, initial avatars, role selectors, access selection, and copy-link feedback       | `share-document`      | 1800 seconds           |
+| 3   | [Weekly activity](tasks/weekly-activity--baseline/task.md)         | Two-series line chart, weekly total, segmented filter, legend, and tooltips             | `weekly-activity`     | 1800 seconds           |
+| 4   | [File attachments](tasks/file-attachments--baseline/task.md)       | Drop zone, file rows, validation, simulated upload progress, retry, and removal         | `file-attachments`    | 1800 seconds           |
+| 5   | [AI chat panel](tasks/ai-chat-panel--baseline/task.md)             | Message layout, avatars, text composer, simulated reply, and waiting state              | `ai-chat-panel`       | 1800 seconds           |
+| 6   | [Payout settings](tasks/payout-settings--baseline/task.md)         | Currency selector, linked number input and slider, notes, validation, and save feedback | `payout-settings`     | 1800 seconds           |
 
 Each scenario has baseline and context variants with identical prompts and reference data. Use the
 shared starter and the instruction rules in [AGENTS.md](AGENTS.md). Do not add accessibility or
@@ -48,5 +49,10 @@ manual interaction tests were performed.
 
 AI chat panel: [Opus 4.8 high](../reports/ai-chat-panel/opus-4-8-high/report.html) and
 [Sonnet 5 high](../reports/ai-chat-panel/sonnet-5-high/report.html). All four attempts passed
+automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
+manual interaction tests were performed.
+
+Payout settings: [Opus 4.8 high](../reports/payout-settings/opus-4-8-high/report.html) and
+[Sonnet 5 high](../reports/payout-settings/sonnet-5-high/report.html). All four attempts passed
 automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
 manual interaction tests were performed.
