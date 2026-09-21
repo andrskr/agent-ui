@@ -1,0 +1,11 @@
+{
+  "displayName": "Alex Morgan",
+  "email": "alex.morgan@example.com",
+  "bio": "Product designer who enjoys building useful tools.",
+  "notifications": {
+    "productUpdates": false,
+    "weeklySummaries": true,
+    "securityAlerts": true
+  },
+  "delivery": "Email"
+}

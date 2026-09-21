@@ -1,0 +1,50 @@
+[
+  {
+    "id": "canvas-backpack",
+    "name": "Canvas backpack",
+    "category": "Bags",
+    "price": 48,
+    "badge": "New",
+    "image": "images/canvas-backpack.svg"
+  },
+  {
+    "id": "weekend-tote",
+    "name": "Weekend tote",
+    "category": "Bags",
+    "price": 36,
+    "badge": "",
+    "image": "images/weekend-tote.svg"
+  },
+  {
+    "id": "steel-water-bottle",
+    "name": "Steel water bottle",
+    "category": "Drinkware",
+    "price": 24,
+    "badge": "",
+    "image": "images/steel-water-bottle.svg"
+  },
+  {
+    "id": "ceramic-mug",
+    "name": "Ceramic mug",
+    "category": "Drinkware",
+    "price": 18,
+    "badge": "Sold out",
+    "image": "images/ceramic-mug.svg"
+  },
+  {
+    "id": "pocket-notebook",
+    "name": "Pocket notebook",
+    "category": "Stationery",
+    "price": 12,
+    "badge": "New",
+    "image": "images/pocket-notebook.svg"
+  },
+  {
+    "id": "desk-planner",
+    "name": "Desk planner",
+    "category": "Stationery",
+    "price": 22,
+    "badge": "",
+    "image": "images/desk-planner.svg"
+  }
+]
