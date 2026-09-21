@@ -1,7 +1,7 @@
 # Scenario index
 
-The new plan will contain 12 small, isolated UI cases. Four cases are prepared. All four cases have
-completed Opus 4.8 and Sonnet 5 reports. The remaining eight cases have not been selected. The
+The new plan will contain 12 small, isolated UI cases. Five cases are prepared. All five cases have
+completed Opus 4.8 and Sonnet 5 reports. The remaining seven cases have not been selected. The
 previous catalog and results were cleared on 18 September 2026.
 
 | #   | Scenario                                                           | UI coverage                                                                        | Suite                 | Agent timeout per task |
@@ -10,6 +10,7 @@ previous catalog and results were cleared on 18 September 2026.
 | 2   | [Share document](tasks/share-document--baseline/task.md)           | Dialog, initial avatars, role selectors, access selection, and copy-link feedback  | `share-document`      | 1800 seconds           |
 | 3   | [Weekly activity](tasks/weekly-activity--baseline/task.md)         | Two-series line chart, weekly total, segmented filter, legend, and tooltips        | `weekly-activity`     | 1800 seconds           |
 | 4   | [File attachments](tasks/file-attachments--baseline/task.md)       | Drop zone, file rows, validation, simulated upload progress, retry, and removal    | `file-attachments`    | 1800 seconds           |
+| 5   | [AI chat panel](tasks/ai-chat-panel--baseline/task.md)             | Message layout, avatars, text composer, simulated reply, and waiting state         | `ai-chat-panel`       | 1800 seconds           |
 
 Each scenario has baseline and context variants with identical prompts and reference data. Use the
 shared starter and the instruction rules in [AGENTS.md](AGENTS.md). Do not add accessibility or
@@ -42,5 +43,10 @@ axis label. No manual interaction tests were performed.
 
 File attachments: [Opus 4.8 high](../reports/file-attachments/opus-4-8-high/report.html) and
 [Sonnet 5 high](../reports/file-attachments/sonnet-5-high/report.html). All four attempts passed
+automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
+manual interaction tests were performed.
+
+AI chat panel: [Opus 4.8 high](../reports/ai-chat-panel/opus-4-8-high/report.html) and
+[Sonnet 5 high](../reports/ai-chat-panel/sonnet-5-high/report.html). All four attempts passed
 automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
 manual interaction tests were performed.
