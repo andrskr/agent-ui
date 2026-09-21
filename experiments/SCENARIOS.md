@@ -1,7 +1,7 @@
 # Scenario index
 
-The new plan will contain 12 small, isolated UI cases. Six cases are prepared. All six cases have
-completed Opus 4.8 and Sonnet 5 reports. The remaining six cases have not been selected. The
+The new plan will contain 12 small, isolated UI cases. Eight cases are prepared. All eight cases
+have completed Opus 4.8 and Sonnet 5 reports. The remaining four cases have not been selected. The
 previous catalog and results were cleared on 18 September 2026.
 
 | #   | Scenario                                                           | UI coverage                                                                             | Suite                 | Agent timeout per task |
@@ -12,6 +12,8 @@ previous catalog and results were cleared on 18 September 2026.
 | 4   | [File attachments](tasks/file-attachments--baseline/task.md)       | Drop zone, file rows, validation, simulated upload progress, retry, and removal         | `file-attachments`    | 1800 seconds           |
 | 5   | [AI chat panel](tasks/ai-chat-panel--baseline/task.md)             | Message layout, avatars, text composer, simulated reply, and waiting state              | `ai-chat-panel`       | 1800 seconds           |
 | 6   | [Payout settings](tasks/payout-settings--baseline/task.md)         | Currency selector, linked number input and slider, notes, validation, and save feedback | `payout-settings`     | 1800 seconds           |
+| 7   | [Team members](tasks/team-members--baseline/task.md)               | Table, combined filters, sorting, row selection, bulk deactivation, and role menus      | `team-members`        | 1800 seconds           |
+| 8   | [Support request](tasks/support-request--baseline/task.md)         | Two-column form, grouped fields, live summary, validation, and submission state         | `support-request`     | 1800 seconds           |
 
 Each scenario has baseline and context variants with identical prompts and reference data. Use the
 shared starter and the instruction rules in [AGENTS.md](AGENTS.md). Do not add accessibility or
@@ -54,5 +56,17 @@ manual interaction tests were performed.
 
 Payout settings: [Opus 4.8 high](../reports/payout-settings/opus-4-8-high/report.html) and
 [Sonnet 5 high](../reports/payout-settings/sonnet-5-high/report.html). All four attempts passed
+automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
+manual interaction tests were performed.
+
+The `team-members-and-support` suite selects only cases 7 and 8 with both variants.
+
+Team members: [Opus 4.8 high](../reports/team-members/opus-4-8-high/report.html) and
+[Sonnet 5 high](../reports/team-members/sonnet-5-high/report.html). All four attempts passed
+automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
+manual interaction tests were performed.
+
+Support request: [Opus 4.8 high](../reports/support-request/opus-4-8-high/report.html) and
+[Sonnet 5 high](../reports/support-request/sonnet-5-high/report.html). All four attempts passed
 automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
 manual interaction tests were performed.

@@ -1,0 +1,98 @@
+[
+  {
+    "id": 1,
+    "name": "Ava Chen",
+    "email": "ava.chen@example.com",
+    "role": "Admin",
+    "status": "Active",
+    "joinedDate": "2025-01-12"
+  },
+  {
+    "id": 2,
+    "name": "Liam Patel",
+    "email": "liam.patel@example.com",
+    "role": "Editor",
+    "status": "Active",
+    "joinedDate": "2025-02-03"
+  },
+  {
+    "id": 3,
+    "name": "Sofia Garcia",
+    "email": "sofia.garcia@example.com",
+    "role": "Viewer",
+    "status": "Active",
+    "joinedDate": "2025-03-18"
+  },
+  {
+    "id": 4,
+    "name": "Noah Williams",
+    "email": "noah.williams@example.com",
+    "role": "Editor",
+    "status": "Inactive",
+    "joinedDate": "2025-04-09"
+  },
+  {
+    "id": 5,
+    "name": "Mia Thompson",
+    "email": "mia.thompson@example.com",
+    "role": "Admin",
+    "status": "Active",
+    "joinedDate": "2025-05-22"
+  },
+  {
+    "id": 6,
+    "name": "Ethan Kim",
+    "email": "ethan.kim@example.com",
+    "role": "Viewer",
+    "status": "Active",
+    "joinedDate": "2025-06-14"
+  },
+  {
+    "id": 7,
+    "name": "Isabella Rossi",
+    "email": "isabella.rossi@example.com",
+    "role": "Editor",
+    "status": "Active",
+    "joinedDate": "2025-07-01"
+  },
+  {
+    "id": 8,
+    "name": "Lucas Martin",
+    "email": "lucas.martin@example.com",
+    "role": "Viewer",
+    "status": "Inactive",
+    "joinedDate": "2025-08-19"
+  },
+  {
+    "id": 9,
+    "name": "Amelia Brown",
+    "email": "amelia.brown@example.com",
+    "role": "Editor",
+    "status": "Active",
+    "joinedDate": "2025-09-07"
+  },
+  {
+    "id": 10,
+    "name": "Oliver Wilson",
+    "email": "oliver.wilson@example.com",
+    "role": "Viewer",
+    "status": "Active",
+    "joinedDate": "2025-10-26"
+  },
+  {
+    "id": 11,
+    "name": "Charlotte Lee",
+    "email": "charlotte.lee@example.com",
+    "role": "Admin",
+    "status": "Inactive",
+    "joinedDate": "2025-11-11"
+  },
+  {
+    "id": 12,
+    "name": "James Davis",
+    "email": "james.davis@example.com",
+    "role": "Editor",
+    "status": "Active",
+    "joinedDate": "2025-12-05"
+  }
+]
