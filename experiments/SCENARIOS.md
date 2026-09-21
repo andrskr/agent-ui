@@ -1,8 +1,7 @@
 # Scenario index
 
-The plan contains 12 small, isolated UI cases. Ten cases are prepared. All ten cases have completed
-Opus 4.8 and Sonnet 5 reports. The remaining two cases have not been selected. The previous catalog
-and results were cleared on 18 September 2026.
+The plan contains 12 small, isolated UI cases. All 12 cases are prepared and have completed Opus 4.8
+and Sonnet 5 reports. The previous catalog and results were cleared on 18 September 2026.
 
 | #   | Scenario                                                           | UI coverage                                                                             | Suite                 | Agent timeout per task |
 | --- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | --------------------- | ---------------------- |
@@ -16,6 +15,8 @@ and results were cleared on 18 September 2026.
 | 8   | [Support request](tasks/support-request--baseline/task.md)         | Two-column form, grouped fields, live summary, validation, and submission state         | `support-request`     | 1800 seconds           |
 | 9   | [Account settings](tasks/account-settings--baseline/task.md)       | Section navigation, profile fields, notification switches, validation, save, and cancel | `account-settings`    | 1800 seconds           |
 | 10  | [Product gallery](tasks/product-gallery--baseline/task.md)         | Image grid, badges, category filter, sorting, single selection, and summary             | `product-gallery`     | 1800 seconds           |
+| 11  | [Choose a plan](tasks/choose-plan--baseline/task.md)               | Plan comparison, billing switch, annual savings, selection, and summary                 | `choose-plan`         | 1800 seconds           |
+| 12  | [Sign in with a code](tasks/sign-in-code--baseline/task.md)        | Two-step form, password visibility, code entry, errors, and success state               | `sign-in-code`        | 1800 seconds           |
 
 Each scenario has baseline and context variants with identical prompts and reference data. Use the
 shared starter and the instruction rules in [AGENTS.md](AGENTS.md). Do not add accessibility or
@@ -82,5 +83,17 @@ manual interaction tests were performed.
 
 Product gallery: [Opus 4.8 high](../reports/product-gallery/opus-4-8-high/report.html) and
 [Sonnet 5 high](../reports/product-gallery/sonnet-5-high/report.html). All four attempts passed
+automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
+manual interaction tests were performed.
+
+The `plans-and-sign-in` suite selects only cases 11 and 12 with both variants.
+
+Choose a plan: [Opus 4.8 high](../reports/choose-plan/opus-4-8-high/report.html) and
+[Sonnet 5 high](../reports/choose-plan/sonnet-5-high/report.html). All four attempts passed
+automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
+manual interaction tests were performed.
+
+Sign in with a code: [Opus 4.8 high](../reports/sign-in-code/opus-4-8-high/report.html) and
+[Sonnet 5 high](../reports/sign-in-code/sonnet-5-high/report.html). All four attempts passed
 automated checks. Initial-state screenshots and capture notes are saved beside both reports. No
 manual interaction tests were performed.

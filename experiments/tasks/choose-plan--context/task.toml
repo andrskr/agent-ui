@@ -1,0 +1,6 @@
+[dev-dependencies]
+"@astryxdesign/cli" = "0.6.2"
+"gpt-tokenizer" = "3.4.0"
+
+[allow-builds]
+"@astryxdesign/cli@0.6.2" = true

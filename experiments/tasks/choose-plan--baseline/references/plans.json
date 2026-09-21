@@ -1,0 +1,35 @@
+{
+  "currency": "USD",
+  "plans": [
+    {
+      "id": "starter",
+      "name": "Starter",
+      "description": "For personal projects.",
+      "monthlyPrice": 10,
+      "yearlyPrice": 96,
+      "features": ["1 workspace", "3 projects", "5 GB storage", "Community support"]
+    },
+    {
+      "id": "pro",
+      "name": "Pro",
+      "description": "For small teams.",
+      "monthlyPrice": 25,
+      "yearlyPrice": 240,
+      "recommended": true,
+      "features": ["5 workspaces", "Unlimited projects", "50 GB storage", "Email support"]
+    },
+    {
+      "id": "business",
+      "name": "Business",
+      "description": "For growing organizations.",
+      "monthlyPrice": 60,
+      "yearlyPrice": 576,
+      "features": [
+        "Unlimited workspaces",
+        "Unlimited projects",
+        "500 GB storage",
+        "Priority support"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+schema_version = 1
+scenarios = ["choose-plan", "sign-in-code"]
+variants = ["baseline", "context"]
